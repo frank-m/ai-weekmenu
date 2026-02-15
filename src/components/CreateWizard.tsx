@@ -35,6 +35,7 @@ export default function CreateWizard() {
   const [style, setStyle] = useState("");
   const [budget, setBudget] = useState("");
   const [healthy, setHealthy] = useState("");
+  const [portions, setPortions] = useState("");
   const [leftovers, setLeftovers] = useState<LeftoverItem[]>([]);
   const [reusedIds, setReusedIds] = useState<number[]>([]);
   const [creating, setCreating] = useState(false);
@@ -73,6 +74,7 @@ export default function CreateWizard() {
             style: style || undefined,
             budget: budget || undefined,
             healthy: healthy || undefined,
+            portions: portions || undefined,
             leftovers: leftovers.filter((l) => l.name.trim()) || undefined,
           },
           reused_recipe_ids: reusedIds,
@@ -197,6 +199,21 @@ export default function CreateWizard() {
               <option value="healthy">Healthy</option>
               <option value="balanced">Balanced</option>
               <option value="comfort">Comfort food</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Portion Size
+            </label>
+            <select
+              value={portions}
+              onChange={(e) => setPortions(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            >
+              <option value="">Default (from settings)</option>
+              <option value="light">Light (~400 cal)</option>
+              <option value="normal">Normal (~600 cal)</option>
+              <option value="large">Large (~800 cal)</option>
             </select>
           </div>
           <div>

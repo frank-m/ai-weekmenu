@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 import { generateRecipes, matchIngredientsToProducts } from "@/lib/gemini";
 import { searchProduct } from "@/lib/picnic";
 import { CreateWeekRequest, Recipe, Week } from "@/lib/types";
-import { DEFAULT_STAPLES } from "@/lib/staples";
+import { getStaples } from "@/lib/staples";
 
 export async function GET() {
   try {
@@ -78,8 +78,9 @@ export async function POST(request: Request) {
           category: string;
         }>;
 
+        const staplesList = getStaples();
         for (const ing of sourceIngredients) {
-          const isActualStaple = DEFAULT_STAPLES.some(
+          const isActualStaple = staplesList.some(
             (s) =>
               ing.name.toLowerCase().includes(s) ||
               s.includes(ing.name.toLowerCase())

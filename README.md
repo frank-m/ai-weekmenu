@@ -13,6 +13,8 @@ Note: This app was fully vibecoded and is not meant to be ran in a production sc
 - **Cart integration** — add matched products to your Picnic cart individually or in bulk
 - **Custom recipes** — create your own recipes with ingredients and Picnic product matching, reuse them in any week
 - **Recipe reuse** — browse previous weeks and custom recipes, reuse favourites in new menus
+- **Configurable staples** — customize which ingredients are considered pantry staples (e.g. salt, oil, pasta) so the AI classifies them correctly
+- **Portion sizes** — set a default calorie target in settings and choose per-week portion sizes (light, normal, large) in the creation wizard
 - **Frequent items** — save commonly purchased products for quick access outside of recipes
 - **Leftover tracking** — tell the AI what leftovers you have so it incorporates them into new recipes
 - **Recipe regeneration** — regenerate individual recipes without recreating the entire week
@@ -94,7 +96,7 @@ All recipes, ingredients, preferences, meal history, frequent items, shopping ca
 ### What is sent to Gemini (Google)
 
 - Number of recipes and servings requested
-- Cuisine preferences (style, budget, healthy)
+- Cuisine preferences (style, budget, healthy, portion size)
 - Leftover ingredient names and quantities
 - Existing recipe titles (to avoid duplicates)
 

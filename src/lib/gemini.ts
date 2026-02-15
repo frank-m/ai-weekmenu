@@ -2,6 +2,7 @@ import { GoogleGenAI, Type, Content, FunctionCall } from "@google/genai";
 import { getSetting } from "./db";
 import { GeneratedRecipe, WeekPreferences, LeftoverItem } from "./types";
 import { rawSearch, delay, MatchedProduct } from "./picnic";
+import { getStaples } from "./staples";
 
 function getApiKey(): string {
   const key = getSetting("gemini_api_key") || process.env.GEMINI_API_KEY || "";
@@ -62,8 +63,18 @@ function buildPrompt(
   preferences: WeekPreferences,
   existingTitles: string[] = []
 ): string {
+  const calorieMap: Record<string, number> = {
+    light: 400,
+    normal: 600,
+    large: 800,
+  };
+  const defaultCalories = parseInt(getSetting("default_calories") || "600") || 600;
+  const calories = preferences.portions
+    ? calorieMap[preferences.portions] || defaultCalories
+    : defaultCalories;
+
   let prompt = `Generate ${numRecipes} dinner recipe(s) for ${servings} servings each.\n`;
-  prompt += `Each recipe should target approximately 600 calories per serving with a balanced mix of protein, carbohydrates, and healthy fats.\n`;
+  prompt += `Each recipe should target approximately ${calories} calories per serving with a balanced mix of protein, carbohydrates, and healthy fats.\n`;
 
   if (preferences.style) {
     prompt += `Cuisine style: ${preferences.style}\n`;
@@ -96,8 +107,9 @@ function buildPrompt(
     prompt += `\nAlready planned this week (do NOT repeat): ${existingTitles.join(", ")}\n`;
   }
 
+  const staplesList = getStaples();
   prompt += `\nIMPORTANT: All ingredient names MUST be in Dutch (for Picnic grocery search).`;
-  prompt += `\nFor each ingredient, set is_staple=true for basic pantry items (salt, pepper, oil, butter, garlic, onions, sugar, flour, etc.) and is_staple=false for recipe-specific items.`;
+  prompt += `\nFor each ingredient, set is_staple=true if it matches one of the user's staple pantry items: ${staplesList.join(", ")}. Set is_staple=false for all other recipe-specific items.`;
   prompt += `\nCategories should be one of: groenten, fruit, vlees, vis, zuivel, bakkerij, kruiden, overig.`;
   prompt += `\nInstructions MUST be numbered step-by-step (1. ... 2. ... etc). Each step should be short (1-2 sentences) with one clear action. Put each step on its own line.`;
 

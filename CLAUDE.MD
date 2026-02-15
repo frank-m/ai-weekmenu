@@ -33,7 +33,7 @@ npm run lint         # ESLint
 Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. Settings are managed via a key/value `settings` table and a SettingsModal in the UI.
 
 ### Key Data Flow: Week Creation (POST /api/weeks)
-1. User fills wizard: num nights, servings, style/budget/healthy preferences
+1. User fills wizard: num nights, servings, style/budget/healthy/portions preferences
 2. Optionally reuses recipes from previous weeks or custom recipes
 3. Remaining slots filled by Gemini API (structured JSON, Dutch ingredient names)
 4. Each unique ingredient searched against Picnic API → best match stored
@@ -56,8 +56,9 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - **recipes**: id, week_id (FK, nullable — NULL for custom recipes), title, description, servings, prep_time, instructions, night_number, source_recipe_id (nullable)
 - **ingredients**: id, recipe_id (FK), name, quantity, is_staple (bool), category
 - **picnic_products**: id, ingredient_id (FK), picnic_id, name, image_id, price (cents), unit_quantity, quantity, added_to_cart (bool)
-- **settings**: key (PK), value — stores gemini_api_key, gemini_model, picnic_username, picnic_password, picnic_country_code
+- **settings**: key (PK), value — stores gemini_api_key, gemini_model, picnic_username, picnic_password, picnic_country_code, default_calories
 - **frequent_items**: id, picnic_id, name, image_id, price (cents), unit_quantity, quantity
+- **staples**: id, name (unique) — user-editable list of staple pantry ingredients, seeded with defaults on first access
 
 ### API Routes
 - `api/settings` — GET/PUT settings
@@ -71,6 +72,7 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - `api/picnic/cart/bulk` — POST add multiple items
 - `api/picnic/cart/[productId]` — DELETE remove from cart
 - `api/frequent-items` — GET list, POST add, PUT update quantity, DELETE remove
+- `api/staples` — GET list, POST add, DELETE remove staple ingredients
 - `api/recipes/[recipeId]/regenerate` — POST regenerate a single recipe
 
 ## Design Conventions
@@ -78,7 +80,9 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - English UI text, Dutch ingredient names (for Picnic search compatibility)
 - Card-based responsive layouts with Tailwind
 - Loading spinners during AI generation and Picnic matching
-- Ingredient rows show: name + quantity | matched Picnic product + price + image | add-to-cart button
+- Ingredient rows show: name + quantity | matched Picnic product + price + image | add-to-cart button (stacked vertically on mobile, horizontal on sm+)
+- Staple classification uses a user-editable DB list (`staples` table) instead of a hardcoded array; the list is included in the Gemini prompt
+- Calorie targets are configurable: `default_calories` setting + per-week portion size preference (light/normal/large)
 
 ## Environment Variables (.env.local)
 

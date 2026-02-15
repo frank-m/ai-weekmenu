@@ -58,4 +58,9 @@ export const CREATE_TABLES = `
     unit_quantity TEXT NOT NULL DEFAULT '',
     quantity INTEGER NOT NULL DEFAULT 1
   );
+
+  CREATE TABLE IF NOT EXISTS staples (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE
+  );
 `;

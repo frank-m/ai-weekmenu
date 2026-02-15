@@ -18,6 +18,7 @@ export interface WeekPreferences {
   style?: string;
   budget?: string;
   healthy?: string;
+  portions?: string;
   leftovers?: string | LeftoverItem[];
 }
 

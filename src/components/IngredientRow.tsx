@@ -63,17 +63,17 @@ export default function IngredientRow({
   };
 
   return (
-    <div className="relative flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-gray-50">
+    <div className="relative flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 py-2 px-3 rounded-lg hover:bg-gray-50">
       {/* Ingredient info */}
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium text-gray-900 truncate">
+      <div className="sm:flex-1 sm:min-w-0">
+        <div className="text-sm font-medium text-gray-900 sm:truncate">
           {ingredient.name}
         </div>
         <div className="text-xs text-gray-500">{ingredient.quantity}</div>
       </div>
 
       {product ? (
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 w-full sm:w-auto sm:shrink-0">
           {product.image_id && (
             <img
               src={`${PICNIC_IMAGE_BASE}/${product.image_id}/small.png`}
@@ -81,7 +81,7 @@ export default function IngredientRow({
               className="w-10 h-10 object-contain rounded"
             />
           )}
-          <div className="text-right">
+          <div className="text-right flex-1 sm:flex-none">
             <div className="text-xs text-gray-700 max-w-[120px] truncate">
               {product.name}
             </div>
@@ -116,7 +116,7 @@ export default function IngredientRow({
           </button>
         </div>
       ) : (
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 w-full sm:w-auto sm:shrink-0">
           <span className="text-xs text-gray-400">No match</span>
           <button
             onClick={() => setShowSearch(!showSearch)}

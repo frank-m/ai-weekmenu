@@ -46,6 +46,12 @@ export default function HomePage() {
             Frequent Items
           </Link>
           <Link
+            href="/staples"
+            className="text-sm text-gray-600 hover:text-gray-900 font-medium"
+          >
+            Staples
+          </Link>
+          <Link
             href="/create"
             className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
           >

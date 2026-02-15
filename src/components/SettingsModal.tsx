@@ -17,6 +17,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
     picnic_country_code: "NL",
     default_num_nights: "5",
     default_servings: "4",
+    default_calories: "600",
     week_title_format: "weeknumber",
   });
   const [loading, setLoading] = useState(true);
@@ -211,6 +212,25 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                     }
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
                   />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">
+                    Default Calories per Serving
+                  </label>
+                  <input
+                    type="number"
+                    min={300}
+                    max={1200}
+                    step={50}
+                    value={settings.default_calories}
+                    onChange={(e) =>
+                      setSettings({ ...settings, default_calories: e.target.value })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">
+                    Target calories per serving for generated recipes (default: 600)
+                  </p>
                 </div>
                 <div>
                   <label className="block text-sm text-gray-600 mb-1">
