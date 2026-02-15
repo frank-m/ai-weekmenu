@@ -3,7 +3,10 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 
-const KEY_FILE = path.join(process.cwd(), ".encryption-key");
+const KEY_FILE = path.join(
+  process.env.DB_PATH ? path.dirname(process.env.DB_PATH) : process.cwd(),
+  ".encryption-key"
+);
 
 let cryptrInstance: Cryptr | null = null;
 
