@@ -134,4 +134,4 @@ No analytics, no telemetry, no third-party tracking.
 
 ## License
 
-ISC
+MIT
