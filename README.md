@@ -37,7 +37,7 @@ Create `.env.local` in the project root:
 
 ```
 GEMINI_API_KEY=your-gemini-api-key
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.0-flash-preview
 PICNIC_USERNAME=your-picnic-email
 PICNIC_PASSWORD=your-picnic-password
 PICNIC_COUNTRY_CODE=NL
