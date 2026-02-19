@@ -54,7 +54,7 @@ export async function POST(request: Request) {
 
         const recipeResult = db
           .prepare(
-            "INSERT INTO recipes (week_id, title, description, servings, prep_time, instructions, night_number, source_recipe_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO recipes (week_id, title, description, servings, prep_time, instructions, night_number, source_recipe_id, calories_per_serving) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
           )
           .run(
             weekId,
@@ -64,7 +64,8 @@ export async function POST(request: Request) {
             sourceRecipe.prep_time,
             sourceRecipe.instructions,
             i + 1,
-            sourceId
+            sourceId,
+            sourceRecipe.calories_per_serving || 0
           );
         const newRecipeId = recipeResult.lastInsertRowid as number;
 
@@ -116,7 +117,7 @@ export async function POST(request: Request) {
 
         const recipeResult = db
           .prepare(
-            "INSERT INTO recipes (week_id, title, description, servings, prep_time, instructions, night_number) VALUES (?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO recipes (week_id, title, description, servings, prep_time, instructions, night_number, calories_per_serving) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
           )
           .run(
             weekId,
@@ -125,7 +126,8 @@ export async function POST(request: Request) {
             recipe.servings,
             recipe.prep_time,
             recipe.instructions,
-            nightNumber
+            nightNumber,
+            recipe.calories_per_serving || 0
           );
         const recipeId = recipeResult.lastInsertRowid as number;
 

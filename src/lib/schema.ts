@@ -18,6 +18,7 @@ export const CREATE_TABLES = `
     instructions TEXT NOT NULL DEFAULT '',
     night_number INTEGER NOT NULL DEFAULT 0,
     source_recipe_id INTEGER,
+    calories_per_serving INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (week_id) REFERENCES weeks(id) ON DELETE CASCADE
   );
 

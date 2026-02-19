@@ -59,6 +59,9 @@ export default function RecipeCard({
             </div>
             <div className="flex gap-1">
               <Badge color="blue">{recipe.prep_time}</Badge>
+              {recipe.calories_per_serving > 0 && (
+                <Badge color="orange">{recipe.calories_per_serving} kcal</Badge>
+              )}
             </div>
           </div>
           <p className="text-sm text-gray-600 mb-4 line-clamp-2">

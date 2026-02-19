@@ -32,6 +32,7 @@ export interface Recipe {
   instructions: string;
   night_number: number;
   source_recipe_id: number | null;
+  calories_per_serving: number;
   ingredients?: Ingredient[];
 }
 
@@ -63,6 +64,7 @@ export interface GeneratedRecipe {
   servings: number;
   prep_time: string;
   instructions: string;
+  calories_per_serving: number;
   ingredients: GeneratedIngredient[];
 }
 

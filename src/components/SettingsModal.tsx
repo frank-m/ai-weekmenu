@@ -19,6 +19,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
     default_servings: "4",
     default_calories: "600",
     week_title_format: "weeknumber",
+    exclude_staples_from_budget: "true",
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -230,6 +231,27 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                   />
                   <p className="text-xs text-gray-400 mt-1">
                     Target calories per serving for generated recipes (default: 600)
+                  </p>
+                </div>
+                <div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={settings.exclude_staples_from_budget !== "false"}
+                      onChange={(e) =>
+                        setSettings({
+                          ...settings,
+                          exclude_staples_from_budget: e.target.checked ? "true" : "false",
+                        })
+                      }
+                      className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                    />
+                    <span className="text-sm text-gray-600">
+                      Exclude pantry staples from recipe budget
+                    </span>
+                  </label>
+                  <p className="text-xs text-gray-400 mt-1 ml-6">
+                    When enabled, staple items you already have at home won&apos;t count toward the budget constraint
                   </p>
                 </div>
                 <div>

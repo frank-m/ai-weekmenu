@@ -15,6 +15,7 @@ export function getDb(): Database.Database {
     db.pragma("foreign_keys = ON");
     db.exec(CREATE_TABLES);
     migrateRecipesWeekIdNullable(db);
+    migrateRecipesCalories(db);
   }
   return db;
 }
@@ -38,13 +39,22 @@ function migrateRecipesWeekIdNullable(db: Database.Database): void {
         instructions TEXT NOT NULL DEFAULT '',
         night_number INTEGER NOT NULL DEFAULT 0,
         source_recipe_id INTEGER,
+        calories_per_serving INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (week_id) REFERENCES weeks(id) ON DELETE CASCADE
       );
-      INSERT INTO recipes_new SELECT * FROM recipes;
+      INSERT INTO recipes_new (id, week_id, title, description, servings, prep_time, instructions, night_number, source_recipe_id)
+        SELECT id, week_id, title, description, servings, prep_time, instructions, night_number, source_recipe_id FROM recipes;
       DROP TABLE recipes;
       ALTER TABLE recipes_new RENAME TO recipes;
     `);
     db.pragma("foreign_keys = ON");
+  }
+}
+
+function migrateRecipesCalories(db: Database.Database): void {
+  const columns = db.pragma("table_info(recipes)") as Array<{ name: string }>;
+  if (!columns.some((c) => c.name === "calories_per_serving")) {
+    db.exec("ALTER TABLE recipes ADD COLUMN calories_per_serving INTEGER NOT NULL DEFAULT 0");
   }
 }
 

@@ -32,6 +32,7 @@ const recipeSchema = {
       servings: { type: Type.NUMBER },
       prep_time: { type: Type.STRING },
       instructions: { type: Type.STRING },
+      calories_per_serving: { type: Type.NUMBER },
       ingredients: {
         type: Type.ARRAY,
         items: {
@@ -52,6 +53,7 @@ const recipeSchema = {
       "servings",
       "prep_time",
       "instructions",
+      "calories_per_serving",
       "ingredients",
     ],
   },
@@ -81,6 +83,10 @@ function buildPrompt(
   }
   if (preferences.budget) {
     prompt += `Budget level: ${preferences.budget}\n`;
+    const excludeStaples = getSetting("exclude_staples_from_budget") !== "false";
+    if (excludeStaples) {
+      prompt += `Staple/pantry items (is_staple=true) are already at home and cost nothing — apply the budget constraint only to non-staple ingredients that need to be purchased.\n`;
+    }
   }
   if (preferences.healthy) {
     prompt += `Healthiness: ${preferences.healthy}\n`;

@@ -61,13 +61,14 @@ export async function POST(
     db.prepare("DELETE FROM ingredients WHERE recipe_id = ?").run(recipeId);
 
     db.prepare(
-      "UPDATE recipes SET title = ?, description = ?, servings = ?, prep_time = ?, instructions = ?, source_recipe_id = NULL WHERE id = ?"
+      "UPDATE recipes SET title = ?, description = ?, servings = ?, prep_time = ?, instructions = ?, calories_per_serving = ?, source_recipe_id = NULL WHERE id = ?"
     ).run(
       newRecipe.title,
       newRecipe.description,
       newRecipe.servings,
       newRecipe.prep_time,
       newRecipe.instructions,
+      newRecipe.calories_per_serving || 0,
       recipeId
     );
 
