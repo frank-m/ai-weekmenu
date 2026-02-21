@@ -18,7 +18,7 @@ function getModel(): string {
   return (
     getSetting("gemini_model") ||
     process.env.GEMINI_MODEL ||
-    "gemini-2.5-flash"
+    "gemini-3.0-flash-preview"
   );
 }
 
@@ -295,7 +295,7 @@ export async function testApiKey(apiKey: string): Promise<boolean> {
   try {
     const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3.0-flash-preview",
       contents: "Say hello in one word.",
     });
     return !!response.text;

@@ -11,7 +11,7 @@ interface SettingsModalProps {
 export default function SettingsModal({ onClose }: SettingsModalProps) {
   const [settings, setSettings] = useState({
     gemini_api_key: "",
-    gemini_model: "gemini-2.5-flash",
+    gemini_model: "gemini-3.0-flash-preview",
     picnic_username: "",
     picnic_password: "",
     picnic_country_code: "NL",

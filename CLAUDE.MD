@@ -41,7 +41,7 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 
 ### Gemini Integration (lib/gemini.ts)
 - Uses `responseMimeType: 'application/json'` + `responseSchema` for guaranteed structured output
-- Default model: `gemini-2.5-flash` (configurable in settings)
+- Default model: `gemini-3.0-flash-preview` (configurable in settings)
 - API key: settings DB → `GEMINI_API_KEY` env var fallback
 
 ### Picnic Integration (lib/picnic.ts)
@@ -54,22 +54,24 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 
 ### Database Schema (SQLite)
 - **weeks**: id, title, created_at, num_nights, servings, preferences (JSON)
-- **recipes**: id, week_id (FK, nullable — NULL for custom recipes), title, description, servings, prep_time, instructions, night_number, source_recipe_id (nullable)
+- **recipes**: id, week_id (FK, nullable — NULL for custom recipes), title, description, servings, prep_time, instructions, night_number, source_recipe_id (nullable), calories_per_serving
 - **ingredients**: id, recipe_id (FK), name, quantity, is_staple (bool), category
 - **picnic_products**: id, ingredient_id (FK), picnic_id, name, image_id, price (cents), unit_quantity, quantity, added_to_cart (bool)
-- **settings**: key (PK), value — stores gemini_api_key, gemini_model, picnic_username, picnic_password, picnic_country_code, default_calories
+- **settings**: key (PK), value — stores gemini_api_key, gemini_model, picnic_username, picnic_password, picnic_country_code, default_calories, week_title_format
 - **frequent_items**: id, picnic_id, name, image_id, price (cents), unit_quantity, quantity
 - **staples**: id, name (unique) — user-editable list of staple pantry ingredients, seeded with defaults on first access
 
 ### API Routes
 - `api/settings` — GET/PUT settings
 - `api/weeks` — GET list, POST create (main orchestration)
-- `api/weeks/[weekId]` — GET week detail
+- `api/weeks/[weekId]` — GET week detail, DELETE week
 - `api/recipes/custom` — GET list custom recipes, POST create custom recipe
 - `api/recipes/custom/[recipeId]` — GET single, PUT update, DELETE remove custom recipe
 - `api/recipes/generate` — POST preview generation
 - `api/picnic/search` — POST product search
-- `api/picnic/cart` — GET cart, POST add to cart
+- `api/picnic/search/products` — POST raw product search (up to 20 results)
+- `api/picnic/bundles` — POST fetch bundle variants via PDP
+- `api/picnic/cart` — GET cart, POST add to cart, DELETE clear entire cart
 - `api/picnic/cart/bulk` — POST add multiple items
 - `api/picnic/cart/[productId]` — DELETE remove from cart
 - `api/picnic/promos` — POST batch promo label lookup (fetched live from PDP)
@@ -90,7 +92,7 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 
 ```
 GEMINI_API_KEY=
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.0-flash-preview
 PICNIC_USERNAME=
 PICNIC_PASSWORD=
 PICNIC_COUNTRY_CODE=NL
@@ -99,10 +101,6 @@ PICNIC_COUNTRY_CODE=NL
 ## Docker
 
 Dockerfile uses multi-stage build (deps → builder → runner). Runs as non-root user (uid 1001). GitHub Actions workflow (`.github/workflows/publish.yml`) publishes to ghcr.io on push to main or version tags.
-
-## Dev Container
-
-The `.devcontainer/` config provides a sandboxed environment with firewall rules, Node.js, and Claude Code pre-installed. Workspace mounts at `/workspace`.
 
 ## Maintaining Documentation
 
