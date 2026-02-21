@@ -60,6 +60,8 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - **settings**: key (PK), value — stores gemini_api_key, gemini_model, picnic_username, picnic_password, picnic_country_code, default_calories, week_title_format
 - **frequent_items**: id, picnic_id, name, image_id, price (cents), unit_quantity, quantity
 - **staples**: id, name (unique) — user-editable list of staple pantry ingredients, seeded with defaults on first access
+- **sale_cache**: picnic_id (PK), name, image_id, price (cents), promo_label, fetched_at (unix ts) — cached on-sale products; stale after 48h
+- **known_promotions**: promotion_id (PK), seed_picnic_id, label, first_seen_at, last_seen_at, active — accumulates all ever-seen Picnic promotion UUIDs; used as seeds for future deal refreshes
 
 ### API Routes
 - `api/settings` — GET/PUT settings
@@ -75,6 +77,8 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - `api/picnic/cart/bulk` — POST add multiple items
 - `api/picnic/cart/[productId]` — DELETE remove from cart
 - `api/picnic/promos` — POST batch promo label lookup (fetched live from PDP)
+- `api/picnic/deals` — GET cached deals (sale_cache, max 48h stale)
+- `api/picnic/deals/refresh` — POST two-phase refresh: seeds from frequent_items + all known_promotions; upserts sale_cache + known_promotions
 - `api/frequent-items` — GET list, POST add, PUT update quantity, DELETE remove
 - `api/staples` — GET list, POST add, DELETE remove staple ingredients
 - `api/recipes/[recipeId]/regenerate` — POST regenerate a single recipe
@@ -87,6 +91,7 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - Ingredient rows show: name + quantity | matched Picnic product + price + image | add-to-cart button (stacked vertically on mobile, horizontal on sm+)
 - Staple classification uses a user-editable DB list (`staples` table) instead of a hardcoded array; the list is included in the Gemini prompt
 - Calorie targets are configurable: `default_calories` setting + per-week portion size preference (light/normal/large)
+- Deals discovery: no bulk Picnic promo endpoint exists; deals are found via PDP "Meer met korting" section (up to 18 products per call sharing a `promotion_id`). Known promotion UUIDs accumulate in `known_promotions` and are re-checked on every refresh — even inactive ones, since Picnic promotions rotate. Active deals are injected into the Gemini recipe prompt.
 
 ## Environment Variables (.env.local)
 

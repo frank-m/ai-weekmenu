@@ -40,6 +40,12 @@ export default function HomePage() {
             My Recipes
           </Link>
           <Link
+            href="/deals"
+            className="text-sm text-gray-600 hover:text-gray-900 font-medium"
+          >
+            Deals
+          </Link>
+          <Link
             href="/frequent-items"
             className="text-sm text-gray-600 hover:text-gray-900 font-medium"
           >

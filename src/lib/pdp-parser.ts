@@ -1,4 +1,4 @@
-import { BundleOption } from "./types";
+import { BundleOption, PromoProduct } from "./types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function findBlockById(node: any, prefix: string): any | null {
@@ -129,6 +129,60 @@ export function extractBundlesFromPDP(pdpResponse: any): BundleOption[] {
   }
 
   return bundles;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function extractPromoProducts(pdpResponse: any): PromoProduct[] {
+  if (!pdpResponse) return [];
+
+  const tilesBlock = findBlockById(pdpResponse, "horizontal-selling-unit-tiles");
+  if (!tilesBlock) return [];
+
+  const products: PromoProduct[] = [];
+
+  for (const tile of tilesBlock.children || []) {
+    try {
+      // Product ID encoded in tile id: "selling-unit-{id}-tile"
+      const tileId: string = tile?.id || "";
+      const idMatch = tileId.match(/^selling-unit-(.+)-tile$/);
+      if (!idMatch) continue;
+      const picnic_id = idMatch[1];
+
+      // Promo data from analytics contexts
+      const contexts: Array<{ schema: string; data: Record<string, unknown> }> =
+        tile?.analytics?.contexts || [];
+      let promotion_id = "";
+      let promo_label = "";
+      let price = 0;
+      for (const ctx of contexts) {
+        if (ctx.schema?.includes("promotion/jsonschema")) {
+          promotion_id = String(ctx.data?.promotion_id || "");
+          promo_label = String(ctx.data?.promotion_label || "");
+          price =
+            typeof ctx.data?.price === "number"
+              ? ctx.data.price
+              : parseInt(String(ctx.data?.price || "0")) || 0;
+        }
+      }
+      if (!promotion_id || !promo_label) continue;
+
+      // Name and image from content.sellingUnit
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const su: any = tile?.content?.sellingUnit;
+      if (!su) continue;
+      const name = String(su.name || "");
+      const image_id = String(su.image_id || "");
+      if (!price && su.display_price) {
+        price = parseInt(String(su.display_price)) || 0;
+      }
+
+      products.push({ picnic_id, name, image_id, price, promotion_id, promo_label });
+    } catch {
+      // skip malformed tile
+    }
+  }
+
+  return products;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

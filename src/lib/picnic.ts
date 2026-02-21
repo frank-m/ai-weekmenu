@@ -162,6 +162,18 @@ export async function getProductPromoLabel(productId: string): Promise<string | 
   return extractPromoLabel(pdp, productId);
 }
 
+export async function getPromoProductsFromPDP(productId: string): Promise<{
+  selfLabel: string | null;
+  promoProducts: import("./types").PromoProduct[];
+}> {
+  const { extractPromoLabel, extractPromoProducts } = await import("./pdp-parser");
+  const pdp = await fetchPDP(productId);
+  return {
+    selfLabel: extractPromoLabel(pdp, productId),
+    promoProducts: extractPromoProducts(pdp),
+  };
+}
+
 export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

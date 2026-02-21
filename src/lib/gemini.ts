@@ -1,8 +1,29 @@
 import { GoogleGenAI, Type, Content, FunctionCall } from "@google/genai";
-import { getSetting } from "./db";
+import { getSetting, getDb } from "./db";
 import { GeneratedRecipe, WeekPreferences, LeftoverItem } from "./types";
 import { rawSearch, delay, MatchedProduct } from "./picnic";
 import { getStaples } from "./staples";
+
+const DEALS_STALE_SECONDS = 48 * 60 * 60;
+
+interface SaleCacheRow {
+  name: string;
+  promo_label: string;
+  price: number;
+}
+
+function getCurrentDeals(): SaleCacheRow[] {
+  try {
+    const cutoff = Math.floor(Date.now() / 1000) - DEALS_STALE_SECONDS;
+    return getDb()
+      .prepare(
+        "SELECT name, promo_label, price FROM sale_cache WHERE fetched_at > ? ORDER BY promo_label ASC, name ASC"
+      )
+      .all(cutoff) as SaleCacheRow[];
+  } catch {
+    return [];
+  }
+}
 
 function getApiKey(): string {
   const key = getSetting("gemini_api_key") || process.env.GEMINI_API_KEY || "";
@@ -111,6 +132,14 @@ function buildPrompt(
 
   if (existingTitles.length > 0) {
     prompt += `\nAlready planned this week (do NOT repeat): ${existingTitles.join(", ")}\n`;
+  }
+
+  const deals = getCurrentDeals();
+  if (deals.length > 0) {
+    prompt += `\nCurrently on sale at Picnic (prefer these ingredients when suitable for the menu):\n`;
+    for (const d of deals) {
+      prompt += `- ${d.name}: ${d.promo_label} (€${(d.price / 100).toFixed(2)})\n`;
+    }
   }
 
   const staplesList = getStaples();

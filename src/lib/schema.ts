@@ -64,4 +64,22 @@ export const CREATE_TABLES = `
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE
   );
+
+  CREATE TABLE IF NOT EXISTS sale_cache (
+    picnic_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    image_id TEXT NOT NULL DEFAULT '',
+    price INTEGER NOT NULL DEFAULT 0,
+    promo_label TEXT NOT NULL,
+    fetched_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS known_promotions (
+    promotion_id TEXT PRIMARY KEY,
+    seed_picnic_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    first_seen_at INTEGER NOT NULL,
+    last_seen_at INTEGER,
+    active INTEGER NOT NULL DEFAULT 1
+  );
 `;

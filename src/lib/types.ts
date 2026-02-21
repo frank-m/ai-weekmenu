@@ -98,6 +98,15 @@ export interface FrequentItem {
   quantity: number;
 }
 
+export interface PromoProduct {
+  picnic_id: string;
+  name: string;
+  image_id: string;
+  price: number;       // cents
+  promotion_id: string;
+  promo_label: string; // e.g. "2e halve prijs"
+}
+
 export interface BundleOption {
   id: string;          // selling unit ID
   name: string;
