@@ -136,17 +136,29 @@ export async function clearCart(): Promise<void> {
   await picnic.clearShoppingCart();
 }
 
+async function fetchPDP(productId: string): Promise<unknown> {
+  const picnic = await getPicnicClient();
+  try {
+    return await picnic.getProductDetailsPage(productId);
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message.includes("401")) {
+      resetPicnicClient();
+      const retryClient = await getPicnicClient();
+      return retryClient.getProductDetailsPage(productId);
+    }
+    throw err;
+  }
+}
+
 export async function getProductBundles(productId: string): Promise<import("./types").BundleOption[]> {
   const { extractBundlesFromPDP } = await import("./pdp-parser");
-  const picnic = await getPicnicClient();
-  const pdp = await picnic.getProductDetailsPage(productId);
+  const pdp = await fetchPDP(productId);
   return extractBundlesFromPDP(pdp);
 }
 
 export async function getProductPromoLabel(productId: string): Promise<string | null> {
   const { extractPromoLabel } = await import("./pdp-parser");
-  const picnic = await getPicnicClient();
-  const pdp = await picnic.getProductDetailsPage(productId);
+  const pdp = await fetchPDP(productId);
   return extractPromoLabel(pdp, productId);
 }
 
