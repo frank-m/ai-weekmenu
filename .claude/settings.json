@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "A task was just completed. Review your changes and check if README.md or CLAUDE.md need updating to stay in sync. If any changes you made affect documented features, API routes, schema, settings, environment variables, or conventions, update the relevant sections now. Only update sections affected by your changes — do not rewrite unrelated parts."
+          }
+        ]
+      }
+    ]
+  }
+}
