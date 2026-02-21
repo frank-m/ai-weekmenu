@@ -70,11 +70,29 @@ export interface RawSearchResult {
   unit_quantity: string;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchSearch(query: string): Promise<any[]> {
+  const picnic = await getPicnicClient();
+  try {
+    const results = await picnic.search(query);
+    return Array.isArray(results) ? results : [];
+  } catch (err: unknown) {
+    // 401 = expired session → reset and re-auth, then retry once
+    // 403 = rate limit or genuine forbidden → do not retry (would just hit the limit again)
+    if (err instanceof Error && err.message.includes("401")) {
+      resetPicnicClient();
+      const retryClient = await getPicnicClient();
+      const results = await retryClient.search(query);
+      return Array.isArray(results) ? results : [];
+    }
+    throw err;
+  }
+}
+
 export async function rawSearch(query: string, limit: number = 5): Promise<RawSearchResult[]> {
   console.log("[picnic] rawSearch called with query:", query);
-  const picnic = await getPicnicClient();
-  const results = await picnic.search(query);
-  const items = Array.isArray(results) ? results : [];
+  const items = await fetchSearch(query);
+  console.log("[picnic] rawSearch results count:", items.length);
   console.log("[picnic] rawSearch results count:", items.length);
 
   const maxResults = Math.min(Math.max(limit, 1), 20);
@@ -92,9 +110,7 @@ export async function searchProduct(
   query: string
 ): Promise<MatchedProduct | null> {
   console.log("[picnic] searchProduct called with query:", query);
-  const picnic = await getPicnicClient();
-  const results = await picnic.search(query);
-  const items = Array.isArray(results) ? results : [];
+  const items = await fetchSearch(query);
   console.log("[picnic] results count:", items.length);
 
   if (items.length > 0) {
