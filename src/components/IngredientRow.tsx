@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Ingredient } from "@/lib/types";
+import { Ingredient, BundleOption } from "@/lib/types";
 import Button from "./ui/Button";
+import BundleModal from "./BundleModal";
 
 interface IngredientRowProps {
   ingredient: Ingredient;
@@ -20,6 +21,7 @@ export default function IngredientRow({
   const [searching, setSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
+  const [showBundleModal, setShowBundleModal] = useState(false);
   const product = ingredient.picnic_product;
 
   const handleAddToCart = async () => {
@@ -39,6 +41,27 @@ export default function IngredientRow({
       // ignore
     }
     setAdding(false);
+  };
+
+  const handleBundleSelect = async (bundle: BundleOption) => {
+    try {
+      await fetch("/api/picnic/search", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ingredient_id: ingredient.id,
+          picnic_id: bundle.id,
+          name: bundle.name,
+          image_id: bundle.image_id,
+          price: bundle.price,
+          unit_quantity: bundle.unit_quantity,
+        }),
+      });
+      setShowBundleModal(false);
+      onCartUpdate();
+    } catch {
+      // ignore
+    }
   };
 
   const handleSearch = async () => {
@@ -106,6 +129,13 @@ export default function IngredientRow({
             </Button>
           )}
           <button
+            onClick={() => setShowBundleModal(true)}
+            className="text-xs text-blue-500 hover:text-blue-700 px-1"
+            title="Bundle variants"
+          >
+            Bundles
+          </button>
+          <button
             onClick={() => setShowSearch(!showSearch)}
             className="text-gray-400 hover:text-gray-600 p-1"
             title="Search different product"
@@ -145,6 +175,16 @@ export default function IngredientRow({
             {searching ? "..." : "Go"}
           </Button>
         </div>
+      )}
+
+      {showBundleModal && product && (
+        <BundleModal
+          productId={product.picnic_id}
+          productName={product.name}
+          currentBundleId={product.picnic_id}
+          onClose={() => setShowBundleModal(false)}
+          onSelect={handleBundleSelect}
+        />
       )}
     </div>
   );

@@ -16,7 +16,7 @@ Note: This app was fully vibecoded and is not meant to be ran in a production sc
 - **Configurable staples** — customize which ingredients are considered pantry staples (e.g. salt, oil, pasta) so the AI classifies them correctly
 - **Portion sizes** — set a default calorie target in settings and choose per-week portion sizes (light, normal, large) in the creation wizard
 - **Frequent items** — save commonly purchased products for quick access outside of recipes, with live promo badges showing active Picnic deals
-- **Bundle selection** — frequent items support a bundle picker to choose multi-pack variants (e.g. 6-pack vs single)
+- **Bundle selection** — ingredient rows and frequent items support a bundle picker to choose multi-pack variants (e.g. 6-pack vs single)
 - **Leftover tracking** — tell the AI what leftovers you have so it incorporates them into new recipes
 - **Recipe regeneration** — regenerate individual recipes without recreating the entire week
 

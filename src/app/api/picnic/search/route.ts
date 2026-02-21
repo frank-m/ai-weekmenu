@@ -3,6 +3,30 @@ import { matchIngredientsToProducts } from "@/lib/gemini";
 import { searchProduct } from "@/lib/picnic";
 import { getDb } from "@/lib/db";
 
+export async function PUT(request: Request) {
+  try {
+    const { ingredient_id, picnic_id, name, image_id, price, unit_quantity } =
+      await request.json();
+
+    if (!ingredient_id || !picnic_id) {
+      return NextResponse.json(
+        { error: "ingredient_id and picnic_id are required" },
+        { status: 400 }
+      );
+    }
+
+    const db = getDb();
+    db.prepare(
+      "UPDATE picnic_products SET picnic_id = ?, name = ?, image_id = ?, price = ?, unit_quantity = ? WHERE ingredient_id = ?"
+    ).run(picnic_id, name, image_id, price, unit_quantity, ingredient_id);
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error("[api/picnic/search] PUT error:", error);
+    return NextResponse.json({ error: String(error) }, { status: 500 });
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const body: { query: string; ingredient_id?: number } = await request.json();

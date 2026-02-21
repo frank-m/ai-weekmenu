@@ -68,7 +68,7 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - `api/recipes/custom` — GET list custom recipes, POST create custom recipe
 - `api/recipes/custom/[recipeId]` — GET single, PUT update, DELETE remove custom recipe
 - `api/recipes/generate` — POST preview generation
-- `api/picnic/search` — POST product search
+- `api/picnic/search` — POST product search, PUT update matched product (bundle swap)
 - `api/picnic/search/products` — POST raw product search (up to 20 results)
 - `api/picnic/bundles` — POST fetch bundle variants via PDP
 - `api/picnic/cart` — GET cart, POST add to cart, DELETE clear entire cart
