@@ -2,9 +2,10 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { FrequentItem } from "@/lib/types";
+import { FrequentItem, BundleOption } from "@/lib/types";
 import Button from "@/components/ui/Button";
 import Spinner from "@/components/ui/Spinner";
+import BundleModal from "@/components/BundleModal";
 
 const PRODUCT_IMAGE_BASE =
   "https://storefront-prod.nl.picnicinternational.com/static/images";
@@ -28,6 +29,7 @@ export default function FrequentItemsPage() {
   const [visibleCount, setVisibleCount] = useState(RESULTS_PER_PAGE);
   const [addingId, setAddingId] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
+  const [bundleModalItem, setBundleModalItem] = useState<FrequentItem | null>(null);
 
   const loadItems = useCallback(async () => {
     try {
@@ -116,6 +118,30 @@ export default function FrequentItemsPage() {
     setUpdatingId(id);
     try {
       await fetch(`/api/frequent-items?id=${id}`, { method: "DELETE" });
+      await loadItems();
+    } catch {
+      // ignore
+    }
+    setUpdatingId(null);
+  };
+
+  const handleBundleSelect = async (bundle: BundleOption) => {
+    if (!bundleModalItem) return;
+    setUpdatingId(bundleModalItem.id);
+    setBundleModalItem(null);
+    try {
+      await fetch("/api/frequent-items", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: bundleModalItem.id,
+          picnic_id: bundle.id,
+          name: bundle.name,
+          image_id: bundle.image_id,
+          price: bundle.price,
+          unit_quantity: bundle.unit_quantity,
+        }),
+      });
       await loadItems();
     } catch {
       // ignore
@@ -286,6 +312,14 @@ export default function FrequentItemsPage() {
                 </button>
               </div>
               <button
+                onClick={() => setBundleModalItem(item)}
+                disabled={updatingId === item.id}
+                className="text-xs text-blue-500 hover:text-blue-700 px-1.5 py-1 disabled:opacity-50"
+                title="View bundles"
+              >
+                Bundles
+              </button>
+              <button
                 onClick={() => handleRemove(item.id)}
                 disabled={updatingId === item.id}
                 className="text-red-400 hover:text-red-600 p-1 disabled:opacity-50"
@@ -298,6 +332,16 @@ export default function FrequentItemsPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {bundleModalItem && (
+        <BundleModal
+          productId={bundleModalItem.picnic_id}
+          productName={bundleModalItem.name}
+          currentBundleId={bundleModalItem.picnic_id}
+          onClose={() => setBundleModalItem(null)}
+          onSelect={handleBundleSelect}
+        />
       )}
     </div>
   );

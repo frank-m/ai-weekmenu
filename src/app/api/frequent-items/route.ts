@@ -64,16 +64,38 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    const body: { id: number; quantity: number } = await request.json();
+    const body: {
+      id: number;
+      quantity?: number;
+      picnic_id?: string;
+      name?: string;
+      image_id?: string;
+      price?: number;
+      unit_quantity?: string;
+    } = await request.json();
     const db = getDb();
 
-    if (body.quantity < 1) {
-      db.prepare("DELETE FROM frequent_items WHERE id = ?").run(body.id);
-    } else {
-      db.prepare("UPDATE frequent_items SET quantity = ? WHERE id = ?").run(
-        body.quantity,
+    if (body.picnic_id) {
+      // Bundle swap: update all product fields
+      db.prepare(
+        "UPDATE frequent_items SET picnic_id = ?, name = ?, image_id = ?, price = ?, unit_quantity = ? WHERE id = ?"
+      ).run(
+        body.picnic_id,
+        body.name || "",
+        body.image_id || "",
+        body.price || 0,
+        body.unit_quantity || "",
         body.id
       );
+    } else if (body.quantity !== undefined) {
+      if (body.quantity < 1) {
+        db.prepare("DELETE FROM frequent_items WHERE id = ?").run(body.id);
+      } else {
+        db.prepare("UPDATE frequent_items SET quantity = ? WHERE id = ?").run(
+          body.quantity,
+          body.id
+        );
+      }
     }
 
     return NextResponse.json({ success: true });

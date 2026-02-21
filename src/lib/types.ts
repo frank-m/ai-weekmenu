@@ -97,3 +97,12 @@ export interface FrequentItem {
   unit_quantity: string;
   quantity: number;
 }
+
+export interface BundleOption {
+  id: string;          // selling unit ID
+  name: string;
+  image_id: string;
+  price: number;       // cents
+  unit_quantity: string;
+  promo_label?: string; // e.g. "2e halve prijs"
+}

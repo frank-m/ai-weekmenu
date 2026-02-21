@@ -136,6 +136,13 @@ export async function clearCart(): Promise<void> {
   await picnic.clearShoppingCart();
 }
 
+export async function getProductBundles(productId: string): Promise<import("./types").BundleOption[]> {
+  const { extractBundlesFromPDP } = await import("./pdp-parser");
+  const picnic = await getPicnicClient();
+  const pdp = await picnic.getProductDetailsPage(productId);
+  return extractBundlesFromPDP(pdp);
+}
+
 export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
