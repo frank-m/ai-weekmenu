@@ -143,6 +143,13 @@ export async function getProductBundles(productId: string): Promise<import("./ty
   return extractBundlesFromPDP(pdp);
 }
 
+export async function getProductPromoLabel(productId: string): Promise<string | null> {
+  const { extractPromoLabel } = await import("./pdp-parser");
+  const picnic = await getPicnicClient();
+  const pdp = await picnic.getProductDetailsPage(productId);
+  return extractPromoLabel(pdp, productId);
+}
+
 export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

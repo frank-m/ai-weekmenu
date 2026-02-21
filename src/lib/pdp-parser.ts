@@ -1,25 +1,30 @@
 import { BundleOption } from "./types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function findBundlesBlock(node: any): any | null {
+function findBlockById(node: any, prefix: string): any | null {
   if (!node || typeof node !== "object") return null;
   if (Array.isArray(node)) {
     for (const item of node) {
-      const r = findBundlesBlock(item);
+      const r = findBlockById(item, prefix);
       if (r) return r;
     }
     return null;
   }
-  if (typeof node.id === "string" && node.id.startsWith("product-page-bundles")) {
+  if (typeof node.id === "string" && node.id.startsWith(prefix)) {
     return node;
   }
   for (const val of Object.values(node)) {
     if (val && typeof val === "object") {
-      const r = findBundlesBlock(val);
+      const r = findBlockById(val, prefix);
       if (r) return r;
     }
   }
   return null;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function findBundlesBlock(node: any): any | null {
+  return findBlockById(node, "product-page-bundles");
 }
 
 function cleanMarkdown(md: string): string {
@@ -124,4 +129,14 @@ export function extractBundlesFromPDP(pdpResponse: any): BundleOption[] {
   }
 
   return bundles;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function extractPromoLabel(pdpResponse: any, sellingUnitId: string): string | null {
+  if (!pdpResponse) return null;
+  const labelsBlock = findBlockById(pdpResponse, `product-page-labels-${sellingUnitId}`);
+  if (!labelsBlock) return null;
+  const data = collectFromPml(labelsBlock);
+  const promoTexts = data.markdowns.filter((t) => t.length > 0);
+  return promoTexts.length > 0 ? promoTexts[0] : null;
 }

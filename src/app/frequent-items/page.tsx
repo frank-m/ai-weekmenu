@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { FrequentItem, BundleOption } from "@/lib/types";
 import Button from "@/components/ui/Button";
+import Badge from "@/components/ui/Badge";
 import Spinner from "@/components/ui/Spinner";
 import BundleModal from "@/components/BundleModal";
 
@@ -30,6 +31,7 @@ export default function FrequentItemsPage() {
   const [addingId, setAddingId] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [bundleModalItem, setBundleModalItem] = useState<FrequentItem | null>(null);
+  const [promos, setPromos] = useState<Record<string, string | null>>({});
 
   const loadItems = useCallback(async () => {
     try {
@@ -45,6 +47,21 @@ export default function FrequentItemsPage() {
   useEffect(() => {
     loadItems();
   }, [loadItems]);
+
+  useEffect(() => {
+    if (items.length === 0) return;
+    const ids = items.map((i) => i.picnic_id);
+    fetch("/api/picnic/promos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ product_ids: ids }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.promos) setPromos(data.promos);
+      })
+      .catch(() => {});
+  }, [items]);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -290,6 +307,9 @@ export default function FrequentItemsPage() {
                 <div className="text-xs text-gray-500">
                   {item.unit_quantity} &middot; &euro;
                   {(item.price / 100).toFixed(2)}
+                  {promos[item.picnic_id] && (
+                    <> <Badge color="yellow">{promos[item.picnic_id]}</Badge></>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2">

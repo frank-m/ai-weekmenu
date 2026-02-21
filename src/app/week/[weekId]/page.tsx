@@ -30,6 +30,7 @@ export default function WeekDetailPage() {
   );
   const [addingFrequentId, setAddingFrequentId] = useState<number | null>(null);
   const [frequentQuantityOverrides, setFrequentQuantityOverrides] = useState<Record<number, number>>({});
+  const [frequentPromos, setFrequentPromos] = useState<Record<string, string | null>>({});
 
   const loadWeek = useCallback(async () => {
     try {
@@ -55,7 +56,22 @@ export default function WeekDetailPage() {
     fetch("/api/frequent-items")
       .then((r) => r.json())
       .then((data) => {
-        if (Array.isArray(data)) setFrequentItems(data);
+        if (Array.isArray(data)) {
+          setFrequentItems(data);
+          const ids = data.map((i: FrequentItem) => i.picnic_id);
+          if (ids.length > 0) {
+            fetch("/api/picnic/promos", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ product_ids: ids }),
+            })
+              .then((r) => r.json())
+              .then((d) => {
+                if (d.promos) setFrequentPromos(d.promos);
+              })
+              .catch(() => {});
+          }
+        }
       })
       .catch(() => {});
   }, []);
@@ -291,6 +307,9 @@ export default function WeekDetailPage() {
                             {item.unit_quantity}{" "}
                             &middot; &euro;
                             {((item.price * qty) / 100).toFixed(2)}
+                            {frequentPromos[item.picnic_id] && (
+                              <> <Badge color="yellow">{frequentPromos[item.picnic_id]}</Badge></>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5">
