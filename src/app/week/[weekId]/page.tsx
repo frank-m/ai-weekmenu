@@ -3,11 +3,12 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Week, LeftoverItem, FrequentItem } from "@/lib/types";
+import { Week, LeftoverItem, FrequentItem, BundleOption } from "@/lib/types";
 import RecipeCard from "@/components/RecipeCard";
 import CartSidebar from "@/components/CartSidebar";
 import Spinner from "@/components/ui/Spinner";
 import Badge from "@/components/ui/Badge";
+import BundleModal from "@/components/BundleModal";
 
 export default function WeekDetailPage() {
   const params = useParams();
@@ -31,6 +32,7 @@ export default function WeekDetailPage() {
   const [addingFrequentId, setAddingFrequentId] = useState<number | null>(null);
   const [frequentQuantityOverrides, setFrequentQuantityOverrides] = useState<Record<number, number>>({});
   const [frequentPromos, setFrequentPromos] = useState<Record<string, string | null>>({});
+  const [bundleModalItem, setBundleModalItem] = useState<FrequentItem | null>(null);
 
   const loadWeek = useCallback(async () => {
     try {
@@ -184,6 +186,34 @@ export default function WeekDetailPage() {
     setAddingFrequentId(null);
   };
 
+  const handleFrequentBundleSelect = async (bundle: BundleOption) => {
+    if (!bundleModalItem) return;
+    try {
+      await fetch(`/api/frequent-items`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: bundleModalItem.id,
+          picnic_id: bundle.id,
+          name: bundle.name,
+          image_id: bundle.image_id,
+          price: bundle.price,
+          unit_quantity: bundle.unit_quantity,
+        }),
+      });
+      setBundleModalItem(null);
+      setFrequentItems((prev) =>
+        prev.map((i) =>
+          i.id === bundleModalItem.id
+            ? { ...i, picnic_id: bundle.id, name: bundle.name, image_id: bundle.image_id, price: bundle.price, unit_quantity: bundle.unit_quantity }
+            : i
+        )
+      );
+    } catch {
+      // ignore
+    }
+  };
+
   const weekTotal = (week?.recipes || []).reduce((sum, recipe) => {
     return sum + (recipe.ingredients || [])
       .filter((i) => !i.is_staple && i.picnic_product)
@@ -331,6 +361,13 @@ export default function WeekDetailPage() {
                           </button>
                         </div>
                         <button
+                          onClick={() => setBundleModalItem(item)}
+                          className="text-xs text-blue-500 hover:text-blue-700 px-1"
+                          title="Bundle variants"
+                        >
+                          Bundles
+                        </button>
+                        <button
                           onClick={() => handleAddFrequentToCart(item)}
                           disabled={adding || added}
                           className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
@@ -361,6 +398,16 @@ export default function WeekDetailPage() {
           </div>
         </div>
       </div>
+
+      {bundleModalItem && (
+        <BundleModal
+          productId={bundleModalItem.picnic_id}
+          productName={bundleModalItem.name}
+          currentBundleId={bundleModalItem.picnic_id}
+          onClose={() => setBundleModalItem(null)}
+          onSelect={handleFrequentBundleSelect}
+        />
+      )}
     </div>
   );
 }
