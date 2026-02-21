@@ -50,6 +50,7 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - 250ms delay between searches to avoid rate limiting
 - Product images: `https://storefront-prod.nl.picnicinternational.com/static/images/{image_id}/small.png`
 - Credentials from settings DB or env vars (`PICNIC_USERNAME`, `PICNIC_PASSWORD`, `PICNIC_COUNTRY_CODE`)
+- PDP bundles & promo labels: see `docs/picnic-bundles-spec.md` — **always read this file** before working on Picnic product/bundle/promo features
 
 ### Database Schema (SQLite)
 - **weeks**: id, title, created_at, num_nights, servings, preferences (JSON)
@@ -71,6 +72,7 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - `api/picnic/cart` — GET cart, POST add to cart
 - `api/picnic/cart/bulk` — POST add multiple items
 - `api/picnic/cart/[productId]` — DELETE remove from cart
+- `api/picnic/promos` — POST batch promo label lookup (fetched live from PDP)
 - `api/frequent-items` — GET list, POST add, PUT update quantity, DELETE remove
 - `api/staples` — GET list, POST add, DELETE remove staple ingredients
 - `api/recipes/[recipeId]/regenerate` — POST regenerate a single recipe
