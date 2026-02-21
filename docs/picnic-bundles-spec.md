@@ -82,6 +82,27 @@ Located in `alternatives-container`. These are **similar products from other bra
 ### "2e halve prijs" label
 A promotional label on `product-page-labels-{id}`. Means the product itself is on a "buy one get second half price" deal. This is independent of bundles — the product may or may not also have bundle variants.
 
+## Promo labels block
+
+Promotion labels (e.g. "2e halve prijs", "10% korting") live in a separate PDP block from bundles.
+
+### PDP tree location
+
+Block has `id` matching `product-page-labels-{sellingUnitId}` (e.g. `product-page-labels-s1002130`). Found at the same level as the bundles block under `children[1].children`.
+
+### Extraction
+
+The block contains a PML tree with RICH_TEXT nodes. Use `collectFromPml()` to gather all markdown strings, then strip `#(...)` color codes. The first non-empty cleaned markdown is the promo label text.
+
+Products without active promotions either have no `product-page-labels-*` block, or the block contains an empty labels array.
+
+### Implementation
+
+- `extractPromoLabel(pdpResponse, sellingUnitId)` in `src/lib/pdp-parser.ts`
+- `getProductPromoLabel(productId)` in `src/lib/picnic.ts`
+- Batch endpoint: `POST /api/picnic/promos` with `{ product_ids: string[] }`
+- Labels are fetched live (not stored in DB) since promotions change weekly
+
 ## Example: product with bundles (Coca-Cola Zero cafeïnevrij)
 
 ```
