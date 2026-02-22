@@ -143,6 +143,9 @@ export async function POST() {
     `);
 
     db.transaction(() => {
+      // Remove any previously cached false positives (cart quantity labels)
+      db.prepare("DELETE FROM sale_cache WHERE promo_label LIKE '%in bestelling%'").run();
+
       for (const item of Array.from(saleMap.values())) {
         upsertSale.run(item);
       }

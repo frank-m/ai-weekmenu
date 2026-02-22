@@ -191,6 +191,9 @@ export function extractPromoLabel(pdpResponse: any, sellingUnitId: string): stri
   const labelsBlock = findBlockById(pdpResponse, `product-page-labels-${sellingUnitId}`);
   if (!labelsBlock) return null;
   const data = collectFromPml(labelsBlock);
-  const promoTexts = data.markdowns.filter((t) => t.length > 0);
+  // Exclude cart quantity labels like "1 in bestelling", "6 in bestelling"
+  const promoTexts = data.markdowns.filter(
+    (t) => t.length > 0 && !/\bin bestelling\b/i.test(t)
+  );
   return promoTexts.length > 0 ? promoTexts[0] : null;
 }
