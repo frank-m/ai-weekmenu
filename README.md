@@ -19,6 +19,7 @@ Note: This app was fully vibecoded and is not meant to be ran in a production sc
 - **Bundle selection** — ingredient rows and frequent items support a bundle picker to choose multi-pack variants (e.g. 6-pack vs single)
 - **Leftover tracking** — tell the AI what leftovers you have so it incorporates them into new recipes
 - **Recipe regeneration** — regenerate individual recipes without recreating the entire week
+- **Deals** *(experimental)* — discovers Picnic promotions via the product detail page "Meer met korting" section; caches on-sale products and injects them into the Gemini prompt so the AI prefers cheaper ingredients. Enable in Settings → Experimental Features.
 
 ## Getting Started
 
@@ -92,7 +93,7 @@ See [CLAUDE.md](CLAUDE.md) for detailed architecture, database schema, and API r
 
 ### What stays local (SQLite)
 
-All recipes, ingredients, preferences, meal history, frequent items, shopping cart state, and matched product info. Nothing is shared externally beyond what is listed below.
+All recipes, ingredients, preferences, meal history, frequent items, shopping cart state, matched product info, and (when Deals is enabled) cached on-sale products and known promotion IDs. Nothing is shared externally beyond what is listed below.
 
 ### What is sent to Gemini (Google)
 
@@ -100,6 +101,7 @@ All recipes, ingredients, preferences, meal history, frequent items, shopping ca
 - Cuisine preferences (style, budget, healthy, portion size)
 - Leftover ingredient names and quantities
 - Existing recipe titles (to avoid duplicates)
+- When Deals is enabled: names and promo labels of currently on-sale Picnic products (cached locally, injected into the recipe prompt)
 
 No personal data, credentials, or browsing history is sent.
 

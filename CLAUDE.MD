@@ -47,7 +47,8 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 ### Picnic Integration (lib/picnic.ts)
 - Singleton PicnicClient with lazy auth
 - Search → take first result; on no results → simplify query (strip adjectives) → retry
-- 250ms delay between searches to avoid rate limiting
+- 250ms delay between searches; 500ms delay between PDP calls (deals refresh) to avoid rate limiting
+- Picnic returns 403 for rate limiting and 401 for expired sessions; `fetchSearch` and `fetchPDP` both retry once on 401 (reset + re-auth). 403 is not retried — back off and try again later.
 - Product images: `https://storefront-prod.nl.picnicinternational.com/static/images/{image_id}/small.png`
 - Credentials from settings DB or env vars (`PICNIC_USERNAME`, `PICNIC_PASSWORD`, `PICNIC_COUNTRY_CODE`)
 - PDP bundles & promo labels: see `docs/picnic-bundles-spec.md` — **always read this file** before working on Picnic product/bundle/promo features
@@ -57,7 +58,7 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - **recipes**: id, week_id (FK, nullable — NULL for custom recipes), title, description, servings, prep_time, instructions, night_number, source_recipe_id (nullable), calories_per_serving
 - **ingredients**: id, recipe_id (FK), name, quantity, is_staple (bool), category
 - **picnic_products**: id, ingredient_id (FK), picnic_id, name, image_id, price (cents), unit_quantity, quantity, added_to_cart (bool)
-- **settings**: key (PK), value — stores gemini_api_key, gemini_model, picnic_username, picnic_password, picnic_country_code, default_calories, week_title_format
+- **settings**: key (PK), value — stores gemini_api_key, gemini_model, picnic_username, picnic_password, picnic_country_code, default_calories, week_title_format, deals_enabled
 - **frequent_items**: id, picnic_id, name, image_id, price (cents), unit_quantity, quantity
 - **staples**: id, name (unique) — user-editable list of staple pantry ingredients, seeded with defaults on first access
 - **sale_cache**: picnic_id (PK), name, image_id, price (cents), promo_label, fetched_at (unix ts) — cached on-sale products; stale after 48h
@@ -91,7 +92,12 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - Ingredient rows show: name + quantity | matched Picnic product + price + image | add-to-cart button (stacked vertically on mobile, horizontal on sm+)
 - Staple classification uses a user-editable DB list (`staples` table) instead of a hardcoded array; the list is included in the Gemini prompt
 - Calorie targets are configurable: `default_calories` setting + per-week portion size preference (light/normal/large)
-- Deals discovery: no bulk Picnic promo endpoint exists; deals are found via PDP "Meer met korting" section (up to 18 products per call sharing a `promotion_id`). Known promotion UUIDs accumulate in `known_promotions` and are re-checked on every refresh — even inactive ones, since Picnic promotions rotate. Active deals are injected into the Gemini recipe prompt.
+- Deals (experimental, `deals_enabled` setting): no bulk Picnic promo endpoint exists. Discovery uses two sources:
+  1. PDP "Meer met korting" section — each PDP exposes up to ~18 products sharing the same `promotion_id` UUID; these are harvested into `sale_cache` and the promotion UUID stored in `known_promotions` with a seed product ID
+  2. Known promotion UUIDs from `known_promotions` are re-seeded on every refresh (even inactive ones — promotions rotate and can reactivate)
+  - Refresh cap: 40 PDP calls per run, 500ms delay; Phase 1 skips frequent items already found via another item's promo group; Phase 2 processes most-recently-active promotions first
+  - False positive: `product-page-labels-*` also contains cart quantity labels ("X in bestelling"); filtered out in `extractPromoLabel` with `/\bin bestelling\b/i`
+  - Active deals injected into Gemini prompt only when `deals_enabled=true`
 
 ## Environment Variables (.env.local)
 

@@ -74,7 +74,28 @@ PML RICH_TEXT markdown contains color codes like `#(#333333)text#(#333333)`. Str
 ## Things that are NOT bundles
 
 ### "Meer met korting" section
-Located in `browsing-container` (identified by analytics `page_section` with `name: "Meer met korting"`). These are **other products from the same brand** that are on promotion — not bundle variants of the current product.
+Located in `browsing-container` > `core-horizontal-selling-unit-section-localized` > `horizontal-selling-unit-tiles`. These are **other products in the same promotion group** (sharing the same `promotion_id` UUID) — not bundle variants of the current product. Up to ~18 tiles per PDP.
+
+#### Tile structure
+
+Each tile has `type: "PML"` and `id: "selling-unit-{product_id}-tile"`.
+
+| Data | Location |
+|---|---|
+| Product ID | tile `id`: extract with `/^selling-unit-(.+)-tile$/` |
+| Name | `content.sellingUnit.name` |
+| Image ID | `content.sellingUnit.image_id` |
+| Price (cents) | analytics context `promotion/jsonschema/1-1-0` → `data.price` |
+| Promotion ID | analytics context `promotion/jsonschema/1-1-0` → `data.promotion_id` |
+| Promo label | analytics context `promotion/jsonschema/1-1-0` → `data.promotion_label` |
+
+All tiles in the section share the same `promotion_id`. Fetching one product's PDP therefore reveals all products in that promotion campaign.
+
+#### Implementation
+
+`extractPromoProducts(pdpResponse)` in `src/lib/pdp-parser.ts` parses this section.
+`getPromoProductsFromPDP(productId)` in `src/lib/picnic.ts` returns both the self promo label and the Meer met korting products in a single PDP fetch.
+Used by `POST /api/picnic/deals/refresh` for the Deals feature.
 
 ### "Vergelijkbaar" section
 Located in `alternatives-container`. These are **similar products from other brands**.
@@ -95,6 +116,12 @@ Block has `id` matching `product-page-labels-{sellingUnitId}` (e.g. `product-pag
 The block contains a PML tree with RICH_TEXT nodes. Use `collectFromPml()` to gather all markdown strings, then strip `#(...)` color codes. The first non-empty cleaned markdown is the promo label text.
 
 Products without active promotions either have no `product-page-labels-*` block, or the block contains an empty labels array.
+
+### Known false positive: "X in bestelling"
+
+Cart quantity labels ("1 in bestelling", "6 in bestelling") appear in the same `product-page-labels-*` block as real promo labels. These indicate how many of the item are in your current Picnic order — not a discount.
+
+Filter: `extractPromoLabel` skips any markdown matching `/\bin bestelling\b/i`.
 
 ### Implementation
 
