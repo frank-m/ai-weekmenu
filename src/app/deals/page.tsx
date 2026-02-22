@@ -68,8 +68,11 @@ export default function DealsPage() {
       if (data.error) {
         setRefreshResult(`Error: ${data.error}`);
       } else {
+        const msg = `Found ${data.items_found} deals across ${data.promotions_checked} promotion groups (${data.calls_made} API calls).`;
         setRefreshResult(
-          `Found ${data.items_found} deals across ${data.promotions_checked} promotion groups.`
+          data.capped
+            ? `${msg} Call limit reached — refresh again to check remaining promotions.`
+            : msg
         );
         await loadDeals();
       }

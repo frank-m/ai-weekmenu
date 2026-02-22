@@ -3,6 +3,9 @@ import { getDb } from "@/lib/db";
 import { getPromoProductsFromPDP, delay } from "@/lib/picnic";
 import { PromoProduct } from "@/lib/types";
 
+const DELAY_MS = 500;       // conservative delay between PDP calls
+const MAX_CALLS = 40;       // hard cap per refresh run
+
 interface FrequentItem {
   picnic_id: string;
   name: string;
@@ -14,6 +17,7 @@ interface KnownPromotion {
   promotion_id: string;
   seed_picnic_id: string;
   label: string;
+  last_seen_at: number | null;
 }
 
 export async function POST() {
@@ -26,16 +30,14 @@ export async function POST() {
       .all() as FrequentItem[];
 
     const knownPromotions = db
-      .prepare("SELECT promotion_id, seed_picnic_id, label FROM known_promotions")
+      .prepare(
+        "SELECT promotion_id, seed_picnic_id, label, last_seen_at FROM known_promotions ORDER BY last_seen_at DESC NULLS LAST"
+      )
       .all() as KnownPromotion[];
 
-    // Track promotion_ids refreshed this run
     const refreshedPromoIds = new Set<string>();
-
-    // Collected sale products keyed by picnic_id (last write wins on duplicates)
     const saleMap = new Map<string, Omit<PromoProduct, "promotion_id"> & { fetched_at: number }>();
 
-    // Queued promotion upserts: promotion_id → partial row
     interface PromoUpsert {
       seed_picnic_id?: string;
       label?: string;
@@ -44,13 +46,38 @@ export async function POST() {
     }
     const promoUpserts = new Map<string, PromoUpsert>();
 
+    let callCount = 0;
+
+    const recordPromoProducts = (promoProducts: PromoProduct[]) => {
+      for (const p of promoProducts) {
+        saleMap.set(p.picnic_id, { ...p, fetched_at: now });
+
+        if (!refreshedPromoIds.has(p.promotion_id)) {
+          refreshedPromoIds.add(p.promotion_id);
+          const existing = knownPromotions.find((k) => k.promotion_id === p.promotion_id);
+          promoUpserts.set(p.promotion_id, {
+            ...(!existing ? { seed_picnic_id: p.picnic_id, label: p.promo_label } : {}),
+            active: 1,
+            last_seen_at: now,
+          });
+        }
+      }
+    }
+
     // ── Phase 1: Seed from frequent items ──────────────────────────────────────
     for (let i = 0; i < frequentItems.length; i++) {
+      if (callCount >= MAX_CALLS) break;
       const item = frequentItems[i];
+
+      // Skip if this product was already picked up via another item's promo group
+      if (saleMap.has(item.picnic_id)) continue;
+
+      if (i > 0) await delay(DELAY_MS);
+      callCount++;
+
       try {
         const { selfLabel, promoProducts } = await getPromoProductsFromPDP(item.picnic_id);
 
-        // If the frequent item itself is on sale, add it to the cache
         if (selfLabel) {
           saleMap.set(item.picnic_id, {
             picnic_id: item.picnic_id,
@@ -62,67 +89,37 @@ export async function POST() {
           });
         }
 
-        // Process "Meer met korting" products
-        for (const p of promoProducts) {
-          saleMap.set(p.picnic_id, { ...p, fetched_at: now });
-
-          if (!refreshedPromoIds.has(p.promotion_id)) {
-            refreshedPromoIds.add(p.promotion_id);
-            const existing = knownPromotions.find(
-              (k) => k.promotion_id === p.promotion_id
-            );
-            if (!existing) {
-              // New promotion discovered — use this product as seed
-              promoUpserts.set(p.promotion_id, {
-                seed_picnic_id: p.picnic_id,
-                label: p.promo_label,
-                active: 1,
-                last_seen_at: now,
-              });
-            } else {
-              promoUpserts.set(p.promotion_id, { active: 1, last_seen_at: now });
-            }
-          }
-        }
+        recordPromoProducts(promoProducts);
       } catch (err) {
         console.error(`[deals/refresh] Phase 1 failed for ${item.picnic_id}:`, err);
       }
-
-      if (i < frequentItems.length - 1) await delay(250);
     }
 
     // ── Phase 2: Check all known promotions not yet refreshed ─────────────────
-    const phase2 = knownPromotions.filter(
-      (k) => !refreshedPromoIds.has(k.promotion_id)
-    );
+    // Already ordered by last_seen_at DESC so recently-active ones go first
+    const phase2 = knownPromotions.filter((k) => !refreshedPromoIds.has(k.promotion_id));
 
     for (let i = 0; i < phase2.length; i++) {
+      if (callCount >= MAX_CALLS) break;
       const known = phase2[i];
+
+      await delay(DELAY_MS);
+      callCount++;
+
       try {
         const { promoProducts } = await getPromoProductsFromPDP(known.seed_picnic_id);
 
-        const matching = promoProducts.filter(
-          (p) => p.promotion_id === known.promotion_id
-        );
+        const matching = promoProducts.filter((p) => p.promotion_id === known.promotion_id);
 
         if (matching.length > 0) {
-          for (const p of matching) {
-            saleMap.set(p.picnic_id, { ...p, fetched_at: now });
-          }
-          promoUpserts.set(known.promotion_id, { active: 1, last_seen_at: now });
-          refreshedPromoIds.add(known.promotion_id);
+          recordPromoProducts(matching);
         } else {
           promoUpserts.set(known.promotion_id, { active: 0, last_seen_at: null });
         }
       } catch (err) {
-        console.error(
-          `[deals/refresh] Phase 2 failed for promo ${known.promotion_id}:`,
-          err
-        );
+        console.error(`[deals/refresh] Phase 2 failed for promo ${known.promotion_id}:`, err);
         promoUpserts.set(known.promotion_id, { active: 0, last_seen_at: null });
       }
-
-      if (i < phase2.length - 1) await delay(250);
     }
 
     // ── Persist to DB ──────────────────────────────────────────────────────────
@@ -149,7 +146,6 @@ export async function POST() {
       for (const item of Array.from(saleMap.values())) {
         upsertSale.run(item);
       }
-
       for (const [promotion_id, u] of Array.from(promoUpserts.entries())) {
         const existing = knownPromotions.find((k) => k.promotion_id === promotion_id);
         upsertPromo.run({
@@ -163,10 +159,13 @@ export async function POST() {
       }
     })();
 
+    const cappedEarly = callCount >= MAX_CALLS;
+
     return NextResponse.json({
       items_found: saleMap.size,
       promotions_checked: refreshedPromoIds.size,
-      promotions_known: knownPromotions.length + promoUpserts.size - knownPromotions.length,
+      calls_made: callCount,
+      capped: cappedEarly,
     });
   } catch (err) {
     console.error("[deals/refresh] error:", err);
