@@ -37,6 +37,7 @@ export async function PUT(request: Request) {
       "default_num_nights",
       "default_servings",
       "week_title_format",
+      "deals_enabled",
     ];
 
     for (const [key, value] of Object.entries(body)) {

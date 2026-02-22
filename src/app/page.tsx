@@ -8,13 +8,17 @@ import Spinner from "@/components/ui/Spinner";
 
 export default function HomePage() {
   const [weeks, setWeeks] = useState<Week[]>([]);
+  const [dealsEnabled, setDealsEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/weeks")
-      .then((r) => r.json())
-      .then((data) => {
-        setWeeks(Array.isArray(data) ? data : []);
+    Promise.all([
+      fetch("/api/weeks").then((r) => r.json()),
+      fetch("/api/settings").then((r) => r.json()),
+    ])
+      .then(([weeksData, settingsData]) => {
+        setWeeks(Array.isArray(weeksData) ? weeksData : []);
+        setDealsEnabled(settingsData?.deals_enabled === "true");
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -39,12 +43,14 @@ export default function HomePage() {
           >
             My Recipes
           </Link>
-          <Link
-            href="/deals"
-            className="text-sm text-gray-600 hover:text-gray-900 font-medium"
-          >
-            Deals
-          </Link>
+          {dealsEnabled && (
+            <Link
+              href="/deals"
+              className="text-sm text-gray-600 hover:text-gray-900 font-medium"
+            >
+              Deals
+            </Link>
+          )}
           <Link
             href="/frequent-items"
             className="text-sm text-gray-600 hover:text-gray-900 font-medium"

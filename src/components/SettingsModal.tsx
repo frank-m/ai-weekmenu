@@ -20,6 +20,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
     default_calories: "600",
     week_title_format: "weeknumber",
     exclude_staples_from_budget: "true",
+    deals_enabled: "false",
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -268,6 +269,38 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                     <option value="weeknumber">Week number (Week 7, 2026)</option>
                     <option value="date">Date (Maandag 16 Feb)</option>
                   </select>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 mb-1">
+                Experimental Features
+              </h3>
+              <p className="text-xs text-gray-400 mb-3">
+                These features are in development and may behave unexpectedly.
+              </p>
+              <div className="space-y-3">
+                <div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={settings.deals_enabled === "true"}
+                      onChange={(e) =>
+                        setSettings({
+                          ...settings,
+                          deals_enabled: e.target.checked ? "true" : "false",
+                        })
+                      }
+                      className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                    />
+                    <span className="text-sm text-gray-600">
+                      Deals — discover Picnic promotions
+                    </span>
+                  </label>
+                  <p className="text-xs text-gray-400 mt-1 ml-6">
+                    Scans your frequent items for active deals via the Picnic product pages. Shows a Deals page and injects on-sale products into the meal planning prompt. Makes additional API calls that may trigger rate limiting.
+                  </p>
                 </div>
               </div>
             </div>

@@ -134,11 +134,13 @@ function buildPrompt(
     prompt += `\nAlready planned this week (do NOT repeat): ${existingTitles.join(", ")}\n`;
   }
 
-  const deals = getCurrentDeals();
-  if (deals.length > 0) {
-    prompt += `\nCurrently on sale at Picnic (prefer these ingredients when suitable for the menu):\n`;
-    for (const d of deals) {
-      prompt += `- ${d.name}: ${d.promo_label} (€${(d.price / 100).toFixed(2)})\n`;
+  if (getSetting("deals_enabled") === "true") {
+    const deals = getCurrentDeals();
+    if (deals.length > 0) {
+      prompt += `\nCurrently on sale at Picnic (prefer these ingredients when suitable for the menu):\n`;
+      for (const d of deals) {
+        prompt += `- ${d.name}: ${d.promo_label} (€${(d.price / 100).toFixed(2)})\n`;
+      }
     }
   }
 

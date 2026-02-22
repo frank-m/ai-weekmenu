@@ -36,6 +36,7 @@ export default function DealsPage() {
   const [items, setItems] = useState<DealItem[]>([]);
   const [lastRefreshed, setLastRefreshed] = useState<number | null>(null);
   const [knownPromotionCount, setKnownPromotionCount] = useState(0);
+  const [enabled, setEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshResult, setRefreshResult] = useState<string | null>(null);
@@ -44,8 +45,13 @@ export default function DealsPage() {
 
   const loadDeals = useCallback(async () => {
     try {
-      const res = await fetch("/api/picnic/deals");
-      const data: DealsResponse = await res.json();
+      const [dealsRes, settingsRes] = await Promise.all([
+        fetch("/api/picnic/deals"),
+        fetch("/api/settings"),
+      ]);
+      const data: DealsResponse = await dealsRes.json();
+      const settings = await settingsRes.json();
+      setEnabled(settings?.deals_enabled === "true");
       setItems(Array.isArray(data.items) ? data.items : []);
       setLastRefreshed(data.lastRefreshed ?? null);
       setKnownPromotionCount(data.knownPromotionCount ?? 0);
@@ -101,6 +107,22 @@ export default function DealsPage() {
     return (
       <div className="flex justify-center py-20">
         <Spinner />
+      </div>
+    );
+  }
+
+  if (!enabled) {
+    return (
+      <div>
+        <Link href="/" className="text-sm text-gray-500 hover:text-gray-700 mb-2 inline-block">
+          &larr; Home
+        </Link>
+        <div className="text-center py-16 text-gray-500">
+          <p className="text-lg font-medium mb-2">Deals is an experimental feature</p>
+          <p className="text-sm">
+            Enable it in <strong>Settings → Experimental Features</strong> to use it.
+          </p>
+        </div>
       </div>
     );
   }
