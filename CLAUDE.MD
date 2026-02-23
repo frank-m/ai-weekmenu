@@ -55,7 +55,7 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 
 ### Database Schema (SQLite)
 - **weeks**: id, title, created_at, num_nights, servings, preferences (JSON)
-- **recipes**: id, week_id (FK, nullable — NULL for custom recipes), title, description, servings, prep_time, instructions, night_number, source_recipe_id (nullable), calories_per_serving
+- **recipes**: id, week_id (FK, nullable — NULL for custom recipes), title, description, servings, prep_time, instructions, night_number, source_recipe_id (nullable), calories_per_serving, rating (nullable integer: 1=thumbs up, -1=thumbs down, NULL=unrated)
 - **ingredients**: id, recipe_id (FK), name, quantity, is_staple (bool), category
 - **picnic_products**: id, ingredient_id (FK), picnic_id, name, image_id, price (cents), unit_quantity, quantity, added_to_cart (bool)
 - **settings**: key (PK), value — stores gemini_api_key, gemini_model, picnic_username, picnic_password, picnic_country_code, default_calories, week_title_format, deals_enabled
@@ -83,6 +83,7 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - `api/frequent-items` — GET list, POST add, PUT update quantity, DELETE remove
 - `api/staples` — GET list, POST add, DELETE remove staple ingredients
 - `api/recipes/[recipeId]/regenerate` — POST regenerate a single recipe
+- `api/recipes/[recipeId]/rating` — PATCH set recipe rating (1=👍, -1=👎, null=clear)
 
 ## Design Conventions
 

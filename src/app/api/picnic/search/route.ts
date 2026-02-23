@@ -35,7 +35,7 @@ export async function POST(request: Request) {
     // Use LLM-powered matching, with direct search fallback
     let match = null;
     try {
-      const results = await matchIngredientsToProducts([body.query]);
+      const results = await matchIngredientsToProducts([{ name: body.query, quantity: "" }]);
       match = results[body.query] || null;
       console.log("[api/picnic/search] LLM match result:", match ? match.name : "null");
     } catch (err) {

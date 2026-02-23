@@ -142,25 +142,31 @@ export async function POST(request: Request) {
     // 4. Match ingredients to Picnic products
     const allIngredients = db
       .prepare(
-        `SELECT i.id, i.name FROM ingredients i
+        `SELECT i.id, i.name, i.quantity FROM ingredients i
          JOIN recipes r ON i.recipe_id = r.id
          WHERE r.week_id = ?`
       )
-      .all(weekId) as Array<{ id: number; name: string }>;
+      .all(weekId) as Array<{ id: number; name: string; quantity: string }>;
 
     // Match ingredients to Picnic products via LLM-powered search
-    const uniqueNames = Array.from(
-      new Set(allIngredients.map((i) => i.name.toLowerCase().trim()))
+    // Deduplicate by name, keeping first quantity seen
+    const seenNames = new Map<string, string>();
+    for (const ing of allIngredients) {
+      const key = ing.name.toLowerCase().trim();
+      if (!seenNames.has(key)) seenNames.set(key, ing.quantity || "");
+    }
+    const uniqueIngredients = Array.from(seenNames.entries()).map(
+      ([name, quantity]) => ({ name, quantity })
     );
 
     let productMap: Record<string, { picnic_id: string; name: string; image_id: string; price: number; unit_quantity: string } | null> = {};
     try {
-      productMap = await matchIngredientsToProducts(uniqueNames);
+      productMap = await matchIngredientsToProducts(uniqueIngredients);
       console.log("[weeks] LLM matched products:", Object.keys(productMap).length);
     } catch (err) {
       console.error("[weeks] LLM matching failed, falling back to direct search:", err);
       // Graceful fallback: search directly for each unique ingredient
-      for (const name of uniqueNames) {
+      for (const { name } of uniqueIngredients) {
         try {
           productMap[name] = await searchProduct(name);
         } catch {

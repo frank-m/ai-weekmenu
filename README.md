@@ -12,6 +12,7 @@ Note: This app was fully vibecoded and is not meant to be ran in a production sc
 - **Picnic product matching** — each ingredient is automatically searched and matched to a Picnic product with price and image
 - **Cart integration** — add matched products to your Picnic cart individually or in bulk
 - **Custom recipes** — create your own recipes with ingredients and Picnic product matching, reuse them in any week
+- **Recipe ratings** — rate recipes with 👍/👎; liked recipes float to the top of the previous-recipe picker when creating a new week
 - **Recipe reuse** — browse previous weeks and custom recipes, reuse favourites in new menus
 - **Configurable staples** — customize which ingredients are considered pantry staples (e.g. salt, oil, pasta) so the AI classifies them correctly
 - **Portion sizes** — set a default calorie target in settings and choose per-week portion sizes (light, normal, large) in the creation wizard
@@ -80,10 +81,10 @@ A GitHub Actions workflow publishes the image to `ghcr.io` on push to `main` or 
 
 The app uses Gemini's function calling to create a clean separation between the LLM and the Picnic API. Rather than doing naive keyword searches for each ingredient, Gemini is given a `search_picnic` tool and decides autonomously how to search:
 
-1. The app sends a list of recipe ingredients to Gemini along with the `search_picnic` tool definition
+1. The app sends a list of recipe ingredients (with their needed quantities) to Gemini along with the `search_picnic` tool definition
 2. Gemini makes tool calls with simplified Dutch queries (stripping adjectives, quantities, and prep methods)
 3. The app executes each search against the Picnic API and returns the results to Gemini
-4. Gemini evaluates the results, retries with different queries if needed, and returns the final ingredient-to-product mapping
+4. Gemini evaluates the results, prefers package sizes closest to the needed quantity, retries with different queries if needed, and returns the final ingredient-to-product mapping
 
 This multi-turn tool-use loop means the LLM handles the intelligence (query simplification, result evaluation, retry logic) while the Picnic API stays a simple search backend. The same pattern is used for the `mcp-picnic` MCP server configured for development with Claude Code.
 

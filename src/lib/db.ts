@@ -16,6 +16,7 @@ export function getDb(): Database.Database {
     db.exec(CREATE_TABLES);
     migrateRecipesWeekIdNullable(db);
     migrateRecipesCalories(db);
+    migrateRecipesRating(db);
   }
   return db;
 }
@@ -55,6 +56,13 @@ function migrateRecipesCalories(db: Database.Database): void {
   const columns = db.pragma("table_info(recipes)") as Array<{ name: string }>;
   if (!columns.some((c) => c.name === "calories_per_serving")) {
     db.exec("ALTER TABLE recipes ADD COLUMN calories_per_serving INTEGER NOT NULL DEFAULT 0");
+  }
+}
+
+function migrateRecipesRating(db: Database.Database): void {
+  const columns = db.pragma("table_info(recipes)") as Array<{ name: string }>;
+  if (!columns.some((c) => c.name === "rating")) {
+    db.exec("ALTER TABLE recipes ADD COLUMN rating INTEGER DEFAULT NULL");
   }
 }
 

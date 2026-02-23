@@ -201,9 +201,11 @@ const searchPicnicTool = {
 };
 
 export async function matchIngredientsToProducts(
-  ingredientNames: string[]
+  ingredients: { name: string; quantity: string }[]
 ): Promise<Record<string, MatchedProduct | null>> {
-  if (ingredientNames.length === 0) return {};
+  if (ingredients.length === 0) return {};
+
+  const ingredientNames = ingredients.map((i) => i.name);
 
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
 
@@ -214,9 +216,10 @@ For each ingredient below, use the search_picnic tool to find the best matching 
 - Keep search queries short: 1-2 words in Dutch
 - If no good match is found, try a different/simpler query
 - You may search for multiple ingredients in parallel
+- When multiple results differ only by package size, prefer the product whose unit_quantity most closely matches the needed quantity shown in parentheses
 
 Ingredients to match:
-${ingredientNames.map((name, i) => `${i + 1}. ${name}`).join("\n")}
+${ingredients.map((ing, i) => `${i + 1}. ${ing.name}${ing.quantity ? ` (need ${ing.quantity})` : ""}`).join("\n")}
 
 When you have found the best match for each ingredient (or determined there is no match), respond with a JSON object mapping each ingredient name (exactly as listed above) to either a match object or null.
 

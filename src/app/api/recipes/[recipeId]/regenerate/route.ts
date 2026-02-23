@@ -81,18 +81,23 @@ export async function POST(
 
     // 7. Match new ingredients to Picnic products
     const newIngredients = db
-      .prepare("SELECT id, name FROM ingredients WHERE recipe_id = ?")
-      .all(recipeId) as { id: number; name: string }[];
+      .prepare("SELECT id, name, quantity FROM ingredients WHERE recipe_id = ?")
+      .all(recipeId) as { id: number; name: string; quantity: string }[];
 
-    const uniqueNames = Array.from(
-      new Set(newIngredients.map((i) => i.name.toLowerCase().trim()))
+    const seenNames = new Map<string, string>();
+    for (const ing of newIngredients) {
+      const key = ing.name.toLowerCase().trim();
+      if (!seenNames.has(key)) seenNames.set(key, ing.quantity || "");
+    }
+    const uniqueIngredients = Array.from(seenNames.entries()).map(
+      ([name, quantity]) => ({ name, quantity })
     );
 
     let productMap: Record<string, { picnic_id: string; name: string; image_id: string; price: number; unit_quantity: string } | null> = {};
     try {
-      productMap = await matchIngredientsToProducts(uniqueNames);
+      productMap = await matchIngredientsToProducts(uniqueIngredients);
     } catch {
-      for (const name of uniqueNames) {
+      for (const { name } of uniqueIngredients) {
         try {
           productMap[name] = await searchProduct(name);
         } catch {

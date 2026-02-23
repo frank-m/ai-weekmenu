@@ -16,6 +16,7 @@ interface RecipeCardProps {
   leftovers?: string[];
   onRegenerate?: (recipeId: number) => void;
   regenerating?: boolean;
+  onRatingChange?: (recipeId: number, rating: number | null) => void;
 }
 
 export default function RecipeCard({
@@ -26,9 +27,22 @@ export default function RecipeCard({
   leftovers,
   onRegenerate,
   regenerating,
+  onRatingChange,
 }: RecipeCardProps) {
   const [showDetail, setShowDetail] = useState(false);
   const [showStaples, setShowStaples] = useState(false);
+  const [rating, setRating] = useState<number | null>(recipe.rating ?? null);
+
+  const handleRate = async (value: 1 | -1) => {
+    const newRating = rating === value ? null : value;
+    setRating(newRating);
+    await fetch(`/api/recipes/${recipe.id}/rating`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rating: newRating }),
+    });
+    onRatingChange?.(recipe.id, newRating);
+  };
   const ingredients = recipe.ingredients || [];
   const isLeftover = (name: string) => {
     const n = name.toLowerCase();
@@ -151,6 +165,28 @@ export default function RecipeCard({
                 {regenerating ? "Regenerating..." : "Regenerate"}
               </Button>
             )}
+            <button
+              onClick={() => handleRate(1)}
+              title="Thumbs up"
+              className={`text-base leading-none px-1.5 py-1 rounded transition-colors ${
+                rating === 1
+                  ? "text-green-600 bg-green-50"
+                  : "text-gray-400 hover:text-green-600"
+              }`}
+            >
+              👍
+            </button>
+            <button
+              onClick={() => handleRate(-1)}
+              title="Thumbs down"
+              className={`text-base leading-none px-1.5 py-1 rounded transition-colors ${
+                rating === -1
+                  ? "text-red-600 bg-red-50"
+                  : "text-gray-400 hover:text-red-600"
+              }`}
+            >
+              👎
+            </button>
             {hasUnaddedProducts && (
               <Button
                 size="sm"

@@ -33,6 +33,7 @@ export interface Recipe {
   night_number: number;
   source_recipe_id: number | null;
   calories_per_serving: number;
+  rating?: number | null;
   ingredients?: Ingredient[];
 }
 

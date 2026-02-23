@@ -294,6 +294,7 @@ export default function WeekDetailPage() {
               leftovers={leftovers}
               onRegenerate={handleRegenerate}
               regenerating={regeneratingRecipe === recipe.id}
+              onRatingChange={() => {}}
             />
           ))}
 

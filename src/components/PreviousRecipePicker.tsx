@@ -59,12 +59,22 @@ export default function PreviousRecipePicker({
 
   if (loading) return <Spinner />;
 
-  const allRecipes = [
+  const combined = [
     ...customRecipes,
     ...weeks.flatMap((w) =>
       (w.recipes || []).map((r) => ({ ...r, weekTitle: w.title }))
     ),
   ];
+
+  const ratingOrder = (r: { rating?: number | null }) => {
+    if (r.rating === 1) return 0;
+    if (r.rating === -1) return 2;
+    return 1;
+  };
+
+  const allRecipes = [...combined].sort(
+    (a, b) => ratingOrder(a) - ratingOrder(b)
+  );
 
   if (allRecipes.length === 0) {
     return (
@@ -128,7 +138,11 @@ export default function PreviousRecipePicker({
                       : "border-gray-200 hover:border-green-300"
                 }`}
               >
-                <div className="font-medium text-sm">{recipe.title}</div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-sm">{recipe.title}</span>
+                  {recipe.rating === 1 && <span className="text-xs">👍</span>}
+                  {recipe.rating === -1 && <span className="text-xs">👎</span>}
+                </div>
                 <div className="text-xs text-gray-500 mt-0.5">
                   from {recipe.weekTitle} &middot; {recipe.prep_time}
                 </div>
