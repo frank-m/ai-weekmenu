@@ -70,6 +70,10 @@ export interface RawSearchResult {
   unit_quantity: string;
 }
 
+export function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchSearch(query: string): Promise<any[]> {
   const picnic = await getPicnicClient();
@@ -78,12 +82,18 @@ async function fetchSearch(query: string): Promise<any[]> {
     return Array.isArray(results) ? results : [];
   } catch (err: unknown) {
     // 401 = expired session → reset and re-auth, then retry once
-    // 403 = rate limit or genuine forbidden → do not retry (would just hit the limit again)
     if (err instanceof Error && err.message.includes("401")) {
       resetPicnicClient();
       const retryClient = await getPicnicClient();
       const results = await retryClient.search(query);
       return Array.isArray(results) ? results : [];
+    }
+    // 403 = rate limit → wait 5s and retry once
+    if (err instanceof Error && err.message.includes("403")) {
+      console.warn("[picnic] 403 rate limit, waiting 5s before retry...");
+      await delay(5000);
+      const retryResult = await picnic.search(query);
+      return Array.isArray(retryResult) ? retryResult : [];
     }
     throw err;
   }
@@ -188,8 +198,4 @@ export async function getPromoProductsFromPDP(productId: string): Promise<{
     selfLabel: extractPromoLabel(pdp, productId),
     promoProducts: extractPromoProducts(pdp),
   };
-}
-
-export function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

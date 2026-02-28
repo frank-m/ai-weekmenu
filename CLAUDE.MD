@@ -47,8 +47,8 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 ### Picnic Integration (lib/picnic.ts)
 - Singleton PicnicClient with lazy auth
 - Search → take first result; on no results → simplify query (strip adjectives) → retry
-- 250ms delay between searches; 500ms delay between PDP calls (deals refresh) to avoid rate limiting
-- Picnic returns 403 for rate limiting and 401 for expired sessions; `fetchSearch` and `fetchPDP` both retry once on 401 (reset + re-auth). 403 is not retried — back off and try again later.
+- 500ms delay between searches; 500ms delay between PDP calls (deals refresh) to avoid rate limiting
+- Picnic returns 403 for rate limiting and 401 for expired sessions; `fetchSearch` and `fetchPDP` both retry once on 401 (reset + re-auth). 403 in `fetchSearch` retries once after a 5s wait; 403 in `fetchPDP` is not retried — back off and try again later.
 - Product images: `https://storefront-prod.nl.picnicinternational.com/static/images/{image_id}/small.png`
 - Credentials from settings DB or env vars (`PICNIC_USERNAME`, `PICNIC_PASSWORD`, `PICNIC_COUNTRY_CODE`)
 - PDP bundles & promo labels: see `docs/picnic-bundles-spec.md` — **always read this file** before working on Picnic product/bundle/promo features

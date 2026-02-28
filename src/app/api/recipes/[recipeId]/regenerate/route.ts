@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { generateRecipes, matchIngredientsToProducts } from "@/lib/gemini";
-import { searchProduct } from "@/lib/picnic";
+import { searchProduct, delay } from "@/lib/picnic";
 import { Recipe, Week, WeekPreferences } from "@/lib/types";
 
 export async function POST(
@@ -98,6 +98,7 @@ export async function POST(
       productMap = await matchIngredientsToProducts(uniqueIngredients);
     } catch {
       for (const { name } of uniqueIngredients) {
+        await delay(500);
         try {
           productMap[name] = await searchProduct(name);
         } catch {

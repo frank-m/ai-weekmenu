@@ -274,7 +274,7 @@ Format:
       const query = (call.args as Record<string, string>)?.query || "";
       console.log(`[gemini] tool call: search_picnic("${query}")`);
 
-      await delay(250);
+      await delay(500);
       try {
         const results = await rawSearch(query);
         functionResponses.push({

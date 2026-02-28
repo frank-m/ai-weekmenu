@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { generateRecipes, matchIngredientsToProducts } from "@/lib/gemini";
-import { searchProduct } from "@/lib/picnic";
+import { searchProduct, delay } from "@/lib/picnic";
 import { CreateWeekRequest, Recipe, Week } from "@/lib/types";
 import { getStaples } from "@/lib/staples";
 
@@ -167,6 +167,7 @@ export async function POST(request: Request) {
       console.error("[weeks] LLM matching failed, falling back to direct search:", err);
       // Graceful fallback: search directly for each unique ingredient
       for (const { name } of uniqueIngredients) {
+        await delay(500);
         try {
           productMap[name] = await searchProduct(name);
         } catch {
