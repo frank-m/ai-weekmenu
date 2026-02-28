@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { generateRecipes, matchIngredientsToProducts } from "@/lib/gemini";
 import { searchProduct, delay } from "@/lib/picnic";
-import { Recipe, Week, WeekPreferences } from "@/lib/types";
+import { Recipe, Week, WeekPreferences, LeftoverItem } from "@/lib/types";
 
 export async function POST(
   _request: Request,
@@ -39,8 +39,33 @@ export async function POST(
         .all(recipe.week_id, recipeId) as { title: string }[]
     ).map((r) => r.title);
 
+    // 3b. Determine which leftover ingredients are already covered by sibling recipes
+    let filteredPreferences = preferences;
+    if (Array.isArray(preferences.leftovers) && preferences.leftovers.length > 0) {
+      const siblingIngNames = (
+        db
+          .prepare(
+            `SELECT DISTINCT i.name FROM ingredients i
+             JOIN recipes r ON i.recipe_id = r.id
+             WHERE r.week_id = ? AND r.id != ?`
+          )
+          .all(recipe.week_id, recipeId) as { name: string }[]
+      ).map((r) => r.name.toLowerCase().trim());
+
+      const uncovered = (preferences.leftovers as LeftoverItem[]).filter((l) => {
+        const lname = l.name.toLowerCase().trim();
+        return !siblingIngNames.some(
+          (s) => s.includes(lname) || lname.includes(s)
+        );
+      });
+      filteredPreferences = { ...preferences, leftovers: uncovered };
+    } else if (typeof preferences.leftovers === "string") {
+      // Legacy string format — can't be filtered; strip it to avoid the same bug
+      filteredPreferences = { ...preferences, leftovers: undefined };
+    }
+
     // 4. Generate one new recipe
-    const generated = await generateRecipes(1, week.servings, preferences, siblingTitles);
+    const generated = await generateRecipes(1, week.servings, filteredPreferences, siblingTitles);
     if (!generated.length) {
       return NextResponse.json({ error: "Failed to generate recipe" }, { status: 500 });
     }

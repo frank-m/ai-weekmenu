@@ -90,7 +90,7 @@ async function fetchSearch(query: string): Promise<any[]> {
     }
     // 403 = rate limit → wait 5s and retry once
     if (err instanceof Error && err.message.includes("403")) {
-      console.warn("[picnic] 403 rate limit, waiting 5s before retry...");
+      console.warn("[picnic] 403 rate limit, waiting 5s before retry...", err.message);
       await delay(5000);
       const retryResult = await picnic.search(query);
       return Array.isArray(retryResult) ? retryResult : [];
