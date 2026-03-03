@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getProductPromoLabel, delay } from "@/lib/picnic";
+import { getProductPromoLabel, delay, PicnicTwoFactorRequiredError } from "@/lib/picnic";
 
 export async function POST(request: Request) {
   try {
@@ -13,7 +13,8 @@ export async function POST(request: Request) {
       const id = product_ids[i];
       try {
         promos[id] = await getProductPromoLabel(id);
-      } catch {
+      } catch (err) {
+        if (err instanceof PicnicTwoFactorRequiredError) throw err;
         promos[id] = null;
       }
       if (i < product_ids.length - 1) {
@@ -23,6 +24,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ promos });
   } catch (err) {
+    if (err instanceof PicnicTwoFactorRequiredError) {
+      return NextResponse.json({ error: "picnic_2fa_required" }, { status: 401 });
+    }
     console.error("[promos] error:", err);
     return NextResponse.json({ error: "Failed to fetch promos" }, { status: 500 });
   }

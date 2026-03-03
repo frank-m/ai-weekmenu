@@ -28,7 +28,7 @@ export default function IngredientRow({
     if (!product) return;
     setAdding(true);
     try {
-      await fetch("/api/picnic/cart", {
+      const res = await fetch("/api/picnic/cart", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -36,6 +36,14 @@ export default function IngredientRow({
           picnic_product_db_id: product.id,
         }),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.error === "picnic_2fa_required") {
+          window.dispatchEvent(new CustomEvent("picnic:2fa-required"));
+        }
+        setAdding(false);
+        return;
+      }
       onCartUpdate();
     } catch {
       // ignore
@@ -45,7 +53,7 @@ export default function IngredientRow({
 
   const handleBundleSelect = async (bundle: BundleOption) => {
     try {
-      await fetch("/api/picnic/search", {
+      const res = await fetch("/api/picnic/search", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -57,6 +65,13 @@ export default function IngredientRow({
           unit_quantity: bundle.unit_quantity,
         }),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.error === "picnic_2fa_required") {
+          window.dispatchEvent(new CustomEvent("picnic:2fa-required"));
+        }
+        return;
+      }
       setShowBundleModal(false);
       onCartUpdate();
     } catch {
@@ -68,7 +83,7 @@ export default function IngredientRow({
     if (!searchQuery.trim()) return;
     setSearching(true);
     try {
-      await fetch("/api/picnic/search", {
+      const res = await fetch("/api/picnic/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -76,6 +91,14 @@ export default function IngredientRow({
           ingredient_id: ingredient.id,
         }),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.error === "picnic_2fa_required") {
+          window.dispatchEvent(new CustomEvent("picnic:2fa-required"));
+        }
+        setSearching(false);
+        return;
+      }
       onCartUpdate();
       setShowSearch(false);
       setSearchQuery("");

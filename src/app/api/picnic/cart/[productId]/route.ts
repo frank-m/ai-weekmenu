@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { removeFromCart } from "@/lib/picnic";
+import { removeFromCart, PicnicTwoFactorRequiredError } from "@/lib/picnic";
 import { getDb } from "@/lib/db";
 
 export async function DELETE(
@@ -21,6 +21,9 @@ export async function DELETE(
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof PicnicTwoFactorRequiredError) {
+      return NextResponse.json({ error: "picnic_2fa_required" }, { status: 401 });
+    }
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }

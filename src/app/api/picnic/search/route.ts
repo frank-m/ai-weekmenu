@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { matchIngredientsToProducts } from "@/lib/gemini";
-import { searchProduct } from "@/lib/picnic";
+import { searchProduct, PicnicTwoFactorRequiredError } from "@/lib/picnic";
 import { getDb } from "@/lib/db";
 
 export async function PUT(request: Request) {
@@ -22,6 +22,9 @@ export async function PUT(request: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
+    if (error instanceof PicnicTwoFactorRequiredError) {
+      return NextResponse.json({ error: "picnic_2fa_required" }, { status: 401 });
+    }
     console.error("[api/picnic/search] PUT error:", error);
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
@@ -69,6 +72,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ product: match });
   } catch (error) {
+    if (error instanceof PicnicTwoFactorRequiredError) {
+      return NextResponse.json({ error: "picnic_2fa_required" }, { status: 401 });
+    }
     console.error("[api/picnic/search] error:", error);
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

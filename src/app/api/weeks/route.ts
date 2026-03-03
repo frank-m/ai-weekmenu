@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { generateRecipes, matchIngredientsToProducts } from "@/lib/gemini";
-import { searchProduct, delay } from "@/lib/picnic";
+import { searchProduct, delay, PicnicTwoFactorRequiredError } from "@/lib/picnic";
 import { CreateWeekRequest, Recipe, Week } from "@/lib/types";
 import { getStaples } from "@/lib/staples";
 
@@ -170,7 +170,8 @@ export async function POST(request: Request) {
         await delay(500);
         try {
           productMap[name] = await searchProduct(name);
-        } catch {
+        } catch (err) {
+          if (err instanceof PicnicTwoFactorRequiredError) throw err;
           productMap[name] = null;
         }
       }
@@ -195,6 +196,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ id: weekId }, { status: 201 });
   } catch (error) {
+    if (error instanceof PicnicTwoFactorRequiredError) {
+      return NextResponse.json({ error: "picnic_2fa_required" }, { status: 401 });
+    }
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }

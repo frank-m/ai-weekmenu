@@ -1,10 +1,22 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const PicnicClient = require("picnic-api");
-import { getSetting } from "./db";
+import { getSetting, setSetting } from "./db";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let client: any = null;
 let authenticated = false;
+let needsTwoFactor = false;
+
+export class PicnicTwoFactorRequiredError extends Error {
+  constructor() {
+    super("Picnic two-factor authentication required. Go to Settings → Picnic to verify.");
+    this.name = "PicnicTwoFactorRequiredError";
+  }
+}
+
+export function getPicnicAuthState() {
+  return { authenticated, needsTwoFactor, hasClient: !!client };
+}
 
 function getCredentials() {
   return {
@@ -20,7 +32,7 @@ function getCredentials() {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function getPicnicClient(): Promise<any> {
   const creds = getCredentials();
-  console.log("[picnic] getPicnicClient called, authenticated:", authenticated, "hasClient:", !!client);
+  console.log("[picnic] getPicnicClient called, authenticated:", authenticated, "needsTwoFactor:", needsTwoFactor, "hasClient:", !!client);
   console.log("[picnic] credentials present — username:", !!creds.username, "password:", !!creds.password, "country:", creds.countryCode);
 
   if (!creds.username || !creds.password) {
@@ -29,19 +41,46 @@ export async function getPicnicClient(): Promise<any> {
     );
   }
 
+  // If client exists but is awaiting 2FA, surface that immediately
+  if (client && needsTwoFactor) {
+    throw new PicnicTwoFactorRequiredError();
+  }
+
   if (!client || !authenticated) {
+    // Try to restore a previously persisted auth key (survives hot-reloads and
+    // worker restarts — avoids triggering a fresh login + 2FA cycle).
+    const storedAuthKey = getSetting("picnic_auth_key");
+    if (storedAuthKey) {
+      console.log("[picnic] restoring session from stored auth key");
+      client = new PicnicClient({ countryCode: creds.countryCode, authKey: storedAuthKey });
+      authenticated = true;
+      needsTwoFactor = false;
+      return client;
+    }
+
     console.log("[picnic] creating new PicnicClient and logging in...");
     client = new PicnicClient({
       countryCode: creds.countryCode,
     });
     try {
-      await client.login(creds.username, creds.password);
+      const loginResult = await client.login(creds.username, creds.password);
+      if (loginResult?.second_factor_authentication_required) {
+        console.log("[picnic] login requires 2FA");
+        needsTwoFactor = true;
+        authenticated = false;
+        throw new PicnicTwoFactorRequiredError();
+      }
       authenticated = true;
+      needsTwoFactor = false;
+      // Persist auth key so it survives module reloads
+      setSetting("picnic_auth_key", client.authKey);
       console.log("[picnic] login successful");
     } catch (err) {
+      if (err instanceof PicnicTwoFactorRequiredError) throw err;
       console.error("[picnic] login failed:", err);
       client = null;
       authenticated = false;
+      needsTwoFactor = false;
       throw err;
     }
   }
@@ -52,6 +91,91 @@ export async function getPicnicClient(): Promise<any> {
 export function resetPicnicClient(): void {
   client = null;
   authenticated = false;
+  needsTwoFactor = false;
+  try { setSetting("picnic_auth_key", ""); } catch { /* ignore — db may not be ready */ }
+}
+
+/** Logs in (if needed) and generates a 2FA SMS code. */
+export async function generatePicnicTwoFactor(): Promise<void> {
+  const creds = getCredentials();
+  if (!creds.username || !creds.password) {
+    throw new Error("Picnic credentials not configured.");
+  }
+
+  // Ensure we have a pre-2FA client
+  if (!client || (!authenticated && !needsTwoFactor)) {
+    client = new PicnicClient({ countryCode: creds.countryCode });
+    const loginResult = await client.login(creds.username, creds.password);
+    if (!loginResult?.second_factor_authentication_required) {
+      // Already authenticated without 2FA
+      authenticated = true;
+      needsTwoFactor = false;
+      return;
+    }
+    needsTwoFactor = true;
+    authenticated = false;
+  }
+
+  // Direct fetch — picnic's /user/2fa/generate returns HTTP 200 with an empty body.
+  // Using client.generate2FACode() would call response.json() on that empty body
+  // and throw a SyntaxError. We skip body parsing entirely here.
+  const generateResponse = await fetch(`${client.url}/user/2fa/generate`, {
+    method: "POST",
+    headers: {
+      "User-Agent": "okhttp/3.12.2",
+      "Content-Type": "application/json; charset=UTF-8",
+      "x-picnic-auth": client.authKey,
+      "x-picnic-agent": "30100;1.15.232-15154",
+      "x-picnic-did": "3C417201548B2E3B",
+    },
+    body: JSON.stringify({ channel: "SMS" }),
+  });
+  if (!generateResponse.ok) {
+    const text = await generateResponse.text().catch(() => "");
+    throw new Error(
+      `Failed to send 2FA code: ${generateResponse.status} ${generateResponse.statusText}${text ? ` — ${text}` : ""}`
+    );
+  }
+  // Success — do NOT call response.json() as the body may be empty
+  console.log("[picnic] 2FA SMS code generated");
+}
+
+/** Verifies a 2FA code and marks the session as authenticated. */
+export async function verifyPicnicTwoFactor(code: string): Promise<void> {
+  if (!client) {
+    throw new Error("No Picnic session. Generate a 2FA code first.");
+  }
+  // Direct fetch — we need to capture the updated x-picnic-auth header that
+  // Picnic issues after 2FA verification (JWT gains pc:2fa: VERIFIED claim).
+  // client.verify2FACode() discards response headers, leaving the old token.
+  const verifyResponse = await fetch(`${client.url}/user/2fa/verify`, {
+    method: "POST",
+    headers: {
+      "User-Agent": "okhttp/3.12.2",
+      "Content-Type": "application/json; charset=UTF-8",
+      "x-picnic-auth": client.authKey,
+      "x-picnic-agent": "30100;1.15.232-15154",
+      "x-picnic-did": "3C417201548B2E3B",
+    },
+    body: JSON.stringify({ otp: code }),
+  });
+  if (!verifyResponse.ok) {
+    const text = await verifyResponse.text().catch(() => "");
+    throw new Error(
+      `Verification failed: ${verifyResponse.status} ${verifyResponse.statusText}${text ? ` — ${text}` : ""}`
+    );
+  }
+  // Capture the updated auth token if Picnic issues one post-verification
+  const newAuthKey = verifyResponse.headers.get("x-picnic-auth");
+  if (newAuthKey) {
+    client.authKey = newAuthKey;
+    console.log("[picnic] 2FA verify returned updated auth key");
+  }
+  authenticated = true;
+  needsTwoFactor = false;
+  // Persist auth key so the session survives hot-reloads and worker restarts
+  setSetting("picnic_auth_key", client.authKey);
+  console.log("[picnic] 2FA verified, session is now active");
 }
 
 export interface MatchedProduct {

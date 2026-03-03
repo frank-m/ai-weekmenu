@@ -45,10 +45,11 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - API key: settings DB → `GEMINI_API_KEY` env var fallback
 
 ### Picnic Integration (lib/picnic.ts)
-- Singleton PicnicClient with lazy auth
+- Singleton PicnicClient with lazy auth; state: `authenticated`, `needsTwoFactor`, `hasClient`
 - Search → take first result; on no results → simplify query (strip adjectives) → retry
 - 500ms delay between searches; 500ms delay between PDP calls (deals refresh) to avoid rate limiting
 - Picnic returns 403 for rate limiting and 401 for expired sessions; `fetchSearch` and `fetchPDP` both retry once on 401 (reset + re-auth). 403 in `fetchSearch` retries once after a 5s wait; 403 in `fetchPDP` is not retried — back off and try again later.
+- **Two-factor authentication (2FA)**: Picnic may enable mandatory 2FA on accounts. Login detects `second_factor_authentication_required: true` → sets `needsTwoFactor = true` → throws `PicnicTwoFactorRequiredError`. The app exposes a 2FA flow in Settings: send SMS code → verify code. Routes: `GET /api/picnic/2fa` (state), `POST /api/picnic/2fa/generate` (send SMS), `POST /api/picnic/2fa/verify` (verify code). Diagnostic: `npx tsx scripts/test-picnic.ts`
 - Product images: `https://storefront-prod.nl.picnicinternational.com/static/images/{image_id}/small.png`
 - Credentials from settings DB or env vars (`PICNIC_USERNAME`, `PICNIC_PASSWORD`, `PICNIC_COUNTRY_CODE`)
 - PDP bundles & promo labels: see `docs/picnic-bundles-spec.md` — **always read this file** before working on Picnic product/bundle/promo features
@@ -74,6 +75,9 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - `api/picnic/search` — POST product search, PUT update matched product (bundle swap)
 - `api/picnic/search/products` — POST raw product search (up to 20 results)
 - `api/picnic/bundles` — POST fetch bundle variants via PDP
+- `api/picnic/2fa` — GET auth state (authenticated/needsTwoFactor/hasClient)
+- `api/picnic/2fa/generate` — POST send 2FA SMS code
+- `api/picnic/2fa/verify` — POST verify 2FA code `{code}`
 - `api/picnic/cart` — GET cart, POST add to cart, DELETE clear entire cart
 - `api/picnic/cart/bulk` — POST add multiple items
 - `api/picnic/cart/[productId]` — DELETE remove from cart

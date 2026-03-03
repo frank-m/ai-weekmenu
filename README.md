@@ -54,6 +54,10 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+### Picnic two-factor authentication
+
+If your Picnic account has 2FA enabled, the app will prompt you to verify in **Settings → Picnic Grocery**. Click "Send SMS code", enter the code you receive by text, then click "Verify". You only need to do this once per server restart.
+
 ## Docker
 
 ```bash

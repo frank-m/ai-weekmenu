@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { addToCart, getCart, clearCart } from "@/lib/picnic";
+import { addToCart, getCart, clearCart, PicnicTwoFactorRequiredError } from "@/lib/picnic";
 import { getDb } from "@/lib/db";
 
 export async function GET() {
@@ -43,6 +43,9 @@ export async function GET() {
 
     return NextResponse.json({ items });
   } catch (error) {
+    if (error instanceof PicnicTwoFactorRequiredError) {
+      return NextResponse.json({ error: "picnic_2fa_required" }, { status: 401 });
+    }
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }
@@ -65,6 +68,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof PicnicTwoFactorRequiredError) {
+      return NextResponse.json({ error: "picnic_2fa_required" }, { status: 401 });
+    }
     console.error("[api/picnic/cart] POST error:", error);
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
@@ -75,6 +81,9 @@ export async function DELETE() {
     await clearCart();
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof PicnicTwoFactorRequiredError) {
+      return NextResponse.json({ error: "picnic_2fa_required" }, { status: 401 });
+    }
     console.error("[api/picnic/cart] DELETE error:", error);
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

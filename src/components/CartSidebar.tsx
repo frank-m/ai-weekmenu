@@ -31,7 +31,13 @@ export default function CartSidebar({ refreshTrigger, onCartUpdate }: CartSideba
     try {
       const res = await fetch("/api/picnic/cart");
       if (!res.ok) {
-        setError("Could not load cart");
+        const data = await res.json().catch(() => ({}));
+        if (data.error === "picnic_2fa_required") {
+          window.dispatchEvent(new CustomEvent("picnic:2fa-required"));
+          setError("Picnic session expired");
+        } else {
+          setError("Could not load cart");
+        }
         setLoading(false);
         return;
       }

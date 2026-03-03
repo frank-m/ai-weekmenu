@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { addToCart, delay } from "@/lib/picnic";
+import { addToCart, delay, PicnicTwoFactorRequiredError } from "@/lib/picnic";
 import { getDb } from "@/lib/db";
 
 export async function POST(request: Request) {
@@ -20,7 +20,8 @@ export async function POST(request: Request) {
           ).run(item.picnic_product_db_id);
         }
         results.push({ product_id: item.product_id, success: true });
-      } catch {
+      } catch (err) {
+        if (err instanceof PicnicTwoFactorRequiredError) throw err;
         results.push({ product_id: item.product_id, success: false });
       }
       await delay(250);
@@ -28,6 +29,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ results });
   } catch (error) {
+    if (error instanceof PicnicTwoFactorRequiredError) {
+      return NextResponse.json({ error: "picnic_2fa_required" }, { status: 401 });
+    }
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }

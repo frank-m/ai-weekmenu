@@ -27,6 +27,16 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
 
+  // 2FA state
+  const [twoFactorNeeded, setTwoFactorNeeded] = useState(false);
+  const [twoFactorCodeSent, setTwoFactorCodeSent] = useState(false);
+  const [twoFactorCode, setTwoFactorCode] = useState("");
+  const [twoFactorLoading, setTwoFactorLoading] = useState(false);
+  const [twoFactorError, setTwoFactorError] = useState("");
+  const [twoFactorSuccess, setTwoFactorSuccess] = useState(false);
+  const [connectLoading, setConnectLoading] = useState(false);
+  const [connectError, setConnectError] = useState("");
+
   useEffect(() => {
     fetch("/api/settings")
       .then((r) => r.json())
@@ -35,7 +45,81 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
         setLoading(false);
       })
       .catch(() => setLoading(false));
+
+    fetch("/api/picnic/2fa")
+      .then((r) => r.json())
+      .then((data) => {
+        setTwoFactorNeeded(!!data.needsTwoFactor);
+      })
+      .catch(() => {});
   }, []);
+
+  const handleConnect = async () => {
+    setConnectLoading(true);
+    setConnectError("");
+    try {
+      const res = await fetch("/api/picnic/2fa", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setConnectError(data.error || "Failed to connect");
+      } else {
+        setTwoFactorNeeded(!!data.needsTwoFactor);
+        if (data.authenticated) {
+          setTwoFactorSuccess(true);
+        }
+      }
+    } catch {
+      setConnectError("Failed to connect");
+    }
+    setConnectLoading(false);
+  };
+
+  const handleSendTwoFactorCode = async () => {
+    setTwoFactorLoading(true);
+    setTwoFactorError("");
+    try {
+      const res = await fetch("/api/picnic/2fa/generate", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setTwoFactorError(data.error || "Failed to send code");
+      } else {
+        setTwoFactorCodeSent(true);
+        // Re-check 2FA state in case it resolved (e.g. 2FA not actually needed)
+        fetch("/api/picnic/2fa")
+          .then((r) => r.json())
+          .then((d) => setTwoFactorNeeded(!!d.needsTwoFactor))
+          .catch(() => {});
+      }
+    } catch {
+      setTwoFactorError("Failed to send code");
+    }
+    setTwoFactorLoading(false);
+  };
+
+  const handleVerifyTwoFactor = async () => {
+    if (!twoFactorCode.trim()) return;
+    setTwoFactorLoading(true);
+    setTwoFactorError("");
+    try {
+      const res = await fetch("/api/picnic/2fa/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: twoFactorCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setTwoFactorError(data.error || "Verification failed");
+      } else {
+        setTwoFactorSuccess(true);
+        setTwoFactorNeeded(false);
+        setTwoFactorCodeSent(false);
+        setTwoFactorCode("");
+      }
+    } catch {
+      setTwoFactorError("Verification failed");
+    }
+    setTwoFactorLoading(false);
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -178,6 +262,70 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                   </select>
                 </div>
               </div>
+
+              {settings.picnic_username && !twoFactorNeeded && !twoFactorSuccess && (
+                <div className="mt-4">
+                  <Button
+                    variant="secondary"
+                    onClick={handleConnect}
+                    disabled={connectLoading}
+                  >
+                    {connectLoading ? "Connecting..." : "Connect to Picnic"}
+                  </Button>
+                  {connectError && (
+                    <p className="text-xs text-red-600 mt-2">{connectError}</p>
+                  )}
+                </div>
+              )}
+
+              {(twoFactorNeeded || twoFactorSuccess) && (
+                <div className={`mt-4 p-3 rounded-lg border ${twoFactorSuccess ? "bg-green-50 border-green-200" : "bg-amber-50 border-amber-200"}`}>
+                  {twoFactorSuccess ? (
+                    <p className="text-sm text-green-700 font-medium">Two-factor authentication verified. Picnic is now connected.</p>
+                  ) : (
+                    <>
+                      <p className="text-sm font-medium text-amber-800 mb-2">
+                        Two-factor authentication required
+                      </p>
+                      <p className="text-xs text-amber-700 mb-3">
+                        Your Picnic account has 2FA enabled. Click &quot;Send SMS code&quot; to receive a verification code, then enter it below.
+                      </p>
+                      {!twoFactorCodeSent ? (
+                        <Button
+                          variant="secondary"
+                          onClick={handleSendTwoFactorCode}
+                          disabled={twoFactorLoading}
+                        >
+                          {twoFactorLoading ? "Sending..." : "Send SMS code"}
+                        </Button>
+                      ) : (
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            maxLength={6}
+                            value={twoFactorCode}
+                            onChange={(e) => setTwoFactorCode(e.target.value)}
+                            placeholder="6-digit code"
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                            onKeyDown={(e) => { if (e.key === "Enter") handleVerifyTwoFactor(); }}
+                          />
+                          <Button
+                            onClick={handleVerifyTwoFactor}
+                            disabled={twoFactorLoading || !twoFactorCode.trim()}
+                          >
+                            {twoFactorLoading ? "Verifying..." : "Verify"}
+                          </Button>
+                        </div>
+                      )}
+                      {twoFactorError && (
+                        <p className="text-xs text-red-600 mt-2">{twoFactorError}</p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
 
             <div>

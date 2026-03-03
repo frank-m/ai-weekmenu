@@ -3,7 +3,7 @@ import path from "path";
 import { CREATE_TABLES } from "./schema";
 import { encryptValue, decryptValue } from "./encryption";
 
-const SENSITIVE_KEYS = ["gemini_api_key", "picnic_password"];
+const SENSITIVE_KEYS = ["gemini_api_key", "picnic_password", "picnic_auth_key"];
 
 let db: Database.Database | null = null;
 

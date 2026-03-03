@@ -1,11 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import SettingsModal from "./SettingsModal";
 
 export default function Navbar() {
   const [showSettings, setShowSettings] = useState(false);
+
+  useEffect(() => {
+    const handler = () => setShowSettings(true);
+    window.addEventListener("picnic:2fa-required", handler);
+    return () => window.removeEventListener("picnic:2fa-required", handler);
+  }, []);
 
   return (
     <>

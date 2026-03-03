@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { getPromoProductsFromPDP, delay } from "@/lib/picnic";
+import { getPromoProductsFromPDP, delay, PicnicTwoFactorRequiredError } from "@/lib/picnic";
 import { PromoProduct } from "@/lib/types";
 
 const DELAY_MS = 500;       // conservative delay between PDP calls
@@ -91,6 +91,7 @@ export async function POST() {
 
         recordPromoProducts(promoProducts);
       } catch (err) {
+        if (err instanceof PicnicTwoFactorRequiredError) throw err;
         console.error(`[deals/refresh] Phase 1 failed for ${item.picnic_id}:`, err);
       }
     }
@@ -117,6 +118,7 @@ export async function POST() {
           promoUpserts.set(known.promotion_id, { active: 0, last_seen_at: null });
         }
       } catch (err) {
+        if (err instanceof PicnicTwoFactorRequiredError) throw err;
         console.error(`[deals/refresh] Phase 2 failed for promo ${known.promotion_id}:`, err);
         promoUpserts.set(known.promotion_id, { active: 0, last_seen_at: null });
       }
@@ -171,6 +173,9 @@ export async function POST() {
       capped: cappedEarly,
     });
   } catch (err) {
+    if (err instanceof PicnicTwoFactorRequiredError) {
+      return NextResponse.json({ error: "picnic_2fa_required" }, { status: 401 });
+    }
     console.error("[deals/refresh] error:", err);
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

@@ -82,7 +82,12 @@ export default function CreateWizard() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Failed to create week");
+        if (data.error === "picnic_2fa_required") {
+          window.dispatchEvent(new CustomEvent("picnic:2fa-required"));
+          setError("Your Picnic session has expired. Settings will open to reconnect.");
+        } else {
+          setError(data.error || "Failed to create week");
+        }
         setCreating(false);
         return;
       }
