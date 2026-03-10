@@ -62,6 +62,7 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - **settings**: key (PK), value — stores gemini_api_key, gemini_model, picnic_username, picnic_password, picnic_country_code, default_calories, week_title_format, deals_enabled
 - **frequent_items**: id, picnic_id, name, image_id, price (cents), unit_quantity, quantity
 - **staples**: id, name (unique) — user-editable list of staple pantry ingredients, seeded with defaults on first access
+- **exclusions**: id, name (unique) — user-editable list of ingredients/dishes Gemini must never include in generated recipes
 - **sale_cache**: picnic_id (PK), name, image_id, price (cents), promo_label, fetched_at (unix ts) — cached on-sale products; stale after 48h
 - **known_promotions**: promotion_id (PK), seed_picnic_id, label, first_seen_at, last_seen_at, active — accumulates all ever-seen Picnic promotion UUIDs; used as seeds for future deal refreshes
 
@@ -86,6 +87,7 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - `api/picnic/deals/refresh` — POST two-phase refresh: seeds from frequent_items + all known_promotions; upserts sale_cache + known_promotions
 - `api/frequent-items` — GET list, POST add, PUT update quantity, DELETE remove
 - `api/staples` — GET list, POST add, DELETE remove staple ingredients
+- `api/exclusions` — GET list, POST add, DELETE remove excluded ingredients/dishes
 - `api/recipes/[recipeId]/regenerate` — POST regenerate a single recipe
 - `api/recipes/[recipeId]/rating` — PATCH set recipe rating (1=👍, -1=👎, null=clear)
 

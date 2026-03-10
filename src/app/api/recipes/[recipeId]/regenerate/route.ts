@@ -65,7 +65,7 @@ export async function POST(
     }
 
     // 4. Generate one new recipe
-    const generated = await generateRecipes(1, week.servings, filteredPreferences, siblingTitles);
+    const generated = await generateRecipes(1, week.servings, filteredPreferences, siblingTitles, recipe.title);
     if (!generated.length) {
       return NextResponse.json({ error: "Failed to generate recipe" }, { status: 500 });
     }

@@ -3,6 +3,7 @@ import { getSetting, getDb } from "./db";
 import { GeneratedRecipe, WeekPreferences, LeftoverItem } from "./types";
 import { rawSearch, delay, MatchedProduct } from "./picnic";
 import { getStaples } from "./staples";
+import { getExclusions } from "./exclusions";
 
 const DEALS_STALE_SECONDS = 48 * 60 * 60;
 
@@ -84,7 +85,8 @@ function buildPrompt(
   numRecipes: number,
   servings: number,
   preferences: WeekPreferences,
-  existingTitles: string[] = []
+  existingTitles: string[] = [],
+  replacingTitle?: string
 ): string {
   const calorieMap: Record<string, number> = {
     light: 400,
@@ -134,6 +136,10 @@ function buildPrompt(
     prompt += `\nAlready planned this week (do NOT repeat): ${existingTitles.join(", ")}\n`;
   }
 
+  if (replacingTitle) {
+    prompt += `\nYou are replacing the recipe "${replacingTitle}". Generate something completely different — not a variation of this dish.\n`;
+  }
+
   if (getSetting("deals_enabled") === "true") {
     const deals = getCurrentDeals();
     if (deals.length > 0) {
@@ -142,6 +148,11 @@ function buildPrompt(
         prompt += `- ${d.name}: ${d.promo_label} (€${(d.price / 100).toFixed(2)})\n`;
       }
     }
+  }
+
+  const exclusions = getExclusions();
+  if (exclusions.length > 0) {
+    prompt += `\nNever use these ingredients or dishes in any recipe: ${exclusions.join(", ")}. This is a strict requirement.\n`;
   }
 
   const staplesList = getStaples();
@@ -157,10 +168,11 @@ export async function generateRecipes(
   numRecipes: number,
   servings: number,
   preferences: WeekPreferences,
-  existingTitles: string[] = []
+  existingTitles: string[] = [],
+  replacingTitle?: string
 ): Promise<GeneratedRecipe[]> {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
-  const prompt = buildPrompt(numRecipes, servings, preferences, existingTitles);
+  const prompt = buildPrompt(numRecipes, servings, preferences, existingTitles, replacingTitle);
 
   const response = await ai.models.generateContent({
     model: getModel(),

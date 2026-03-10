@@ -65,6 +65,11 @@ export const CREATE_TABLES = `
     name TEXT NOT NULL UNIQUE
   );
 
+  CREATE TABLE IF NOT EXISTS exclusions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE
+  );
+
   CREATE TABLE IF NOT EXISTS sale_cache (
     picnic_id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
