@@ -99,13 +99,21 @@ function buildPrompt(
     : defaultCalories;
 
   let prompt = `Generate ${numRecipes} dinner recipe(s) for ${servings} servings each.\n`;
-  prompt += `Each recipe should target approximately ${calories} calories per serving with a balanced mix of protein, carbohydrates, and healthy fats.\n`;
+  prompt += `Each recipe should target approximately ${calories} calories per serving.\n`;
+  prompt += `Every recipe MUST include a substantial carbohydrate component (e.g. pasta, rijst, aardappelen, brood, noedels, couscous, quinoa, bulgur, gnocchi, or similar). Do not generate recipes that are only protein and vegetables.\n`;
 
   if (preferences.style) {
     prompt += `Cuisine style: ${preferences.style}\n`;
   }
   if (preferences.budget) {
-    prompt += `Budget level: ${preferences.budget}\n`;
+    const budgetDescriptions: Record<string, string> = {
+      budget:  "low — keep non-staple ingredient costs minimal, use cheap cuts and simple ingredients",
+      moderate: "medium — use everyday ingredients at moderate prices",
+      high:    "high — a larger ingredient budget is available; you can use quality cuts and fresh ingredients, but keep recipes practical and home-cooking appropriate",
+      premium: "premium — a generous budget is available; choose quality ingredients freely, but keep recipes practical and home-cooking appropriate — no need for elaborate gourmet techniques",
+    };
+    const budgetText = budgetDescriptions[preferences.budget] ?? preferences.budget;
+    prompt += `Budget: ${budgetText}\n`;
     const excludeStaples = getSetting("exclude_staples_from_budget") !== "false";
     if (excludeStaples) {
       prompt += `Staple/pantry items (is_staple=true) are already at home and cost nothing — apply the budget constraint only to non-staple ingredients that need to be purchased.\n`;

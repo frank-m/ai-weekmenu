@@ -188,7 +188,8 @@ export default function CreateWizard() {
               <option value="">Any</option>
               <option value="budget">Budget-friendly (~€2-3 p.p.)</option>
               <option value="moderate">Moderate (~€4-5 p.p.)</option>
-              <option value="premium">Premium (~€6-8 p.p.)</option>
+              <option value="high">High (~€6-8 p.p.)</option>
+              <option value="premium">Premium (~€9-12 p.p.)</option>
             </select>
           </div>
           <div>
