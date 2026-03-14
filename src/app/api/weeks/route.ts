@@ -159,7 +159,7 @@ export async function POST(request: Request) {
       ([name, quantity]) => ({ name, quantity })
     );
 
-    let productMap: Record<string, { picnic_id: string; name: string; image_id: string; price: number; unit_quantity: string } | null> = {};
+    let productMap: Record<string, { picnic_id: string; name: string; image_id: string; price: number; unit_quantity: string; quantity: number } | null> = {};
     try {
       productMap = await matchIngredientsToProducts(uniqueIngredients);
       console.log("[weeks] LLM matched products:", Object.keys(productMap).length);
@@ -182,14 +182,15 @@ export async function POST(request: Request) {
       const product = productMap[normalizedName];
       if (product) {
         db.prepare(
-          "INSERT INTO picnic_products (ingredient_id, picnic_id, name, image_id, price, unit_quantity) VALUES (?, ?, ?, ?, ?, ?)"
+          "INSERT INTO picnic_products (ingredient_id, picnic_id, name, image_id, price, unit_quantity, quantity) VALUES (?, ?, ?, ?, ?, ?, ?)"
         ).run(
           ing.id,
           product.picnic_id,
           product.name,
           product.image_id,
           product.price,
-          product.unit_quantity
+          product.unit_quantity,
+          product.quantity ?? 1
         );
       }
     }

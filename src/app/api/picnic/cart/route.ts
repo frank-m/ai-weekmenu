@@ -56,7 +56,13 @@ export async function POST(request: Request) {
       await request.json();
 
     console.log("[api/picnic/cart] POST adding product:", body.product_id, "db_id:", body.picnic_product_db_id);
-    await addToCart(body.product_id);
+    let count = 1;
+    if (body.picnic_product_db_id) {
+      const db = getDb();
+      const row = db.prepare("SELECT quantity FROM picnic_products WHERE id = ?").get(body.picnic_product_db_id) as { quantity: number } | undefined;
+      count = row?.quantity ?? 1;
+    }
+    await addToCart(body.product_id, count);
 
     // Only mark this specific row as added to cart
     if (body.picnic_product_db_id) {

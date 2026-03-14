@@ -134,8 +134,11 @@ export default function IngredientRow({
             {product.unit_quantity && (
               <div className="text-xs text-gray-400">{product.unit_quantity}</div>
             )}
+            {product.quantity > 1 && (
+              <div className="text-xs font-medium text-orange-600">{product.quantity}&times;</div>
+            )}
             <div className="text-xs font-medium text-green-700">
-              &euro;{(product.price / 100).toFixed(2)}
+              &euro;{((product.price * (product.quantity > 1 ? product.quantity : 1)) / 100).toFixed(2)}
             </div>
           </div>
           {product.added_to_cart ? (

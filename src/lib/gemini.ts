@@ -243,9 +243,11 @@ ${ingredients.map((ing, i) => `${i + 1}. ${ing.name}${ing.quantity ? ` (need ${i
 
 When you have found the best match for each ingredient (or determined there is no match), respond with a JSON object mapping each ingredient name (exactly as listed above) to either a match object or null.
 
+Also include "quantity": the integer number of units of this product needed to fulfill the recipe's required amount. Default to 1 when the product covers the required amount or when it cannot be determined.
+
 Format:
 {
-  "ingredient name": {"picnic_id": "123", "name": "Product Name", "image_id": "abc", "price": 199, "unit_quantity": "500g"},
+  "ingredient name": {"picnic_id": "123", "name": "Product Name", "image_id": "abc", "price": 199, "unit_quantity": "500g", "quantity": 1},
   "other ingredient": null
 }`;
 
@@ -337,6 +339,7 @@ function parseMatchResults(
         image_id: match.image_id || "",
         price: typeof match.price === "number" ? match.price : parseInt(match.price) || 0,
         unit_quantity: match.unit_quantity || "",
+        quantity: (typeof match.quantity === "number" && match.quantity >= 1) ? Math.round(match.quantity) : 1,
       };
     } else {
       result[name] = null;

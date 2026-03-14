@@ -184,6 +184,7 @@ export interface MatchedProduct {
   image_id: string;
   price: number;
   unit_quantity: string;
+  quantity: number;
 }
 
 export interface RawSearchResult {
@@ -256,6 +257,7 @@ export async function searchProduct(
       image_id: item.image_id || "",
       price: parseInt(item.display_price) || 0,
       unit_quantity: item.unit_quantity || "",
+      quantity: 1,
     };
   }
 
