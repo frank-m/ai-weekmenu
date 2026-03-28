@@ -107,10 +107,10 @@ function buildPrompt(
   }
   if (preferences.budget) {
     const budgetDescriptions: Record<string, string> = {
-      budget:  "low — keep non-staple ingredient costs minimal, use cheap cuts and simple ingredients",
-      moderate: "medium — use everyday ingredients at moderate prices",
-      high:    "high — a larger ingredient budget is available; you can use quality cuts and fresh ingredients, but keep recipes practical and home-cooking appropriate",
-      premium: "premium — a generous budget is available; choose quality ingredients freely, but keep recipes practical and home-cooking appropriate — no need for elaborate gourmet techniques",
+      budget:   "low — stay under €3 per person (non-staples only); use cheap cuts (gehakt, kipfilet, peulvruchten), frozen/canned veg, simple ingredients — no premium or specialty items",
+      moderate: "medium — stay under €5 per person (non-staples only); everyday ingredients like kip, varkensvlees, pasta, seizoensgroenten — no premium cuts or specialty items",
+      high:     "high — stay under €8 per person (non-staples only); good-quality everyday ingredients are fine (zalm, kip, kaas, vers vlees), practical home-cooking only — no luxury or gourmet items (e.g. no kreeft, wagyu, truffel, specialty restaurant ingredients)",
+      premium:  "premium — stay under €12 per person (non-staples only); quality ingredients freely chosen (bijv. biefstuk, verse vis, premium kaas), practical home-cooking only — no elaborate gourmet techniques or rare specialty ingredients",
     };
     const budgetText = budgetDescriptions[preferences.budget] ?? preferences.budget;
     prompt += `Budget: ${budgetText}\n`;
@@ -141,7 +141,7 @@ function buildPrompt(
   }
 
   if (existingTitles.length > 0) {
-    prompt += `\nAlready planned this week (do NOT repeat): ${existingTitles.join(", ")}\n`;
+    prompt += `\nAlready planned this week — do NOT repeat these, but note they may be from a different budget level; apply the budget constraint only to the new recipes you generate: ${existingTitles.join(", ")}\n`;
   }
 
   if (replacingTitle) {
