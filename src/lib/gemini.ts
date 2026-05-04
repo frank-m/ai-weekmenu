@@ -4,6 +4,7 @@ import { GeneratedRecipe, WeekPreferences, LeftoverItem } from "./types";
 import { rawSearch, delay, MatchedProduct } from "./picnic";
 import { getStaples } from "./staples";
 import { getExclusions } from "./exclusions";
+import { getSeasonalProduce, SEASON_LABELS } from "./seasonal";
 
 const DEALS_STALE_SECONDS = 48 * 60 * 60;
 
@@ -156,6 +157,12 @@ function buildPrompt(
         prompt += `- ${d.name}: ${d.promo_label} (€${(d.price / 100).toFixed(2)})\n`;
       }
     }
+  }
+
+  if (preferences.seasonal !== false) {
+    const { season, produce } = getSeasonalProduce();
+    const label = SEASON_LABELS[season];
+    prompt += `\nCurrently in season in the Netherlands (${label.name}, ${label.range}) — prefer these ingredients where suitable: ${produce.join(", ")}.\n`;
   }
 
   const exclusions = getExclusions();

@@ -20,6 +20,7 @@ export interface WeekPreferences {
   healthy?: string;
   portions?: string;
   leftovers?: string | LeftoverItem[];
+  seasonal?: boolean;
 }
 
 export interface Recipe {

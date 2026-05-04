@@ -7,6 +7,7 @@ import NumberStepper from "./ui/NumberStepper";
 import Spinner from "./ui/Spinner";
 import PreviousRecipePicker from "./PreviousRecipePicker";
 import { LeftoverItem } from "@/lib/types";
+import { getCurrentSeason, SEASON_LABELS, SEASONAL_PRODUCE } from "@/lib/seasonal";
 
 function getISOWeekTitle() {
   const now = new Date();
@@ -36,6 +37,7 @@ export default function CreateWizard() {
   const [budget, setBudget] = useState("");
   const [healthy, setHealthy] = useState("");
   const [portions, setPortions] = useState("");
+  const [seasonal, setSeasonal] = useState(true);
   const [leftovers, setLeftovers] = useState<LeftoverItem[]>([]);
   const [reusedIds, setReusedIds] = useState<number[]>([]);
   const [creating, setCreating] = useState(false);
@@ -76,6 +78,7 @@ export default function CreateWizard() {
             healthy: healthy || undefined,
             portions: portions || undefined,
             leftovers: leftovers.filter((l) => l.name.trim()) || undefined,
+            seasonal,
           },
           reused_recipe_ids: reusedIds,
         }),
@@ -97,6 +100,9 @@ export default function CreateWizard() {
       setCreating(false);
     }
   };
+
+  const currentSeason = getCurrentSeason();
+  const currentSeasonLabel = SEASON_LABELS[currentSeason];
 
   if (creating) {
     return (
@@ -221,6 +227,23 @@ export default function CreateWizard() {
               <option value="normal">Normal (~600 cal)</option>
               <option value="large">Large (~800 cal)</option>
             </select>
+          </div>
+          <div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={seasonal}
+                onChange={(e) => setSeasonal(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+              />
+              <span className="text-sm font-medium text-gray-700">
+                Prefer seasonal produce
+              </span>
+            </label>
+            <p className="text-xs text-gray-400 mt-1 ml-6">
+              {currentSeasonLabel.name} ({currentSeasonLabel.range}):{" "}
+              {SEASONAL_PRODUCE[currentSeason].join(", ")}
+            </p>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">

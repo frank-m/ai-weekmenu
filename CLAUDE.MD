@@ -33,7 +33,7 @@ npm run lint         # ESLint
 Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. Settings are managed via a key/value `settings` table and a SettingsModal in the UI.
 
 ### Key Data Flow: Week Creation (POST /api/weeks)
-1. User fills wizard: num nights, servings, style/budget/healthy/portions preferences
+1. User fills wizard: num nights, servings, style/budget/healthy/portions/seasonal preferences
 2. Optionally reuses recipes from previous weeks or custom recipes
 3. Remaining slots filled by Gemini API (structured JSON, Dutch ingredient names)
 4. Each unique ingredient searched against Picnic API → best match stored
@@ -43,6 +43,7 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - Uses `responseMimeType: 'application/json'` + `responseSchema` for guaranteed structured output
 - Default model: `gemini-3.0-flash-preview` (configurable in settings)
 - API key: settings DB → `GEMINI_API_KEY` env var fallback
+- Seasonal produce: when `preferences.seasonal !== false`, injects current Dutch season's produce list as a soft preference (see `lib/seasonal.ts`)
 
 ### Picnic Integration (lib/picnic.ts)
 - Singleton PicnicClient with lazy auth; state: `authenticated`, `needsTwoFactor`, `hasClient`
