@@ -8,6 +8,15 @@ export default function Navbar() {
   const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
+    fetch("/api/picnic/2fa", { method: "POST" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.needsTwoFactor) {
+          window.dispatchEvent(new Event("picnic:2fa-required"));
+        }
+      })
+      .catch(() => {});
+
     const handler = () => setShowSettings(true);
     window.addEventListener("picnic:2fa-required", handler);
     return () => window.removeEventListener("picnic:2fa-required", handler);
