@@ -10,6 +10,9 @@ export async function GET(
   try {
     const db = getDb();
     const weekId = parseInt(params.weekId);
+    if (isNaN(weekId)) {
+      return NextResponse.json({ error: "Invalid week id" }, { status: 400 });
+    }
 
     const week = db.prepare("SELECT * FROM weeks WHERE id = ?").get(weekId) as
       | (Omit<Week, "preferences"> & { preferences: string })
@@ -121,30 +124,36 @@ export async function DELETE(
   try {
     const db = getDb();
     const weekId = parseInt(params.weekId);
+    if (isNaN(weekId)) {
+      return NextResponse.json({ error: "Invalid week id" }, { status: 400 });
+    }
 
     const week = db.prepare("SELECT id FROM weeks WHERE id = ?").get(weekId);
     if (!week) {
       return NextResponse.json({ error: "Week not found" }, { status: 404 });
     }
 
-    // Delete in order: picnic_products → ingredients → recipes → week
-    const recipeIds = db
-      .prepare("SELECT id FROM recipes WHERE week_id = ?")
-      .all(weekId) as { id: number }[];
+    // Delete in order: picnic_products → ingredients → recipes → week.
+    // Transactional so a failure can't leave a half-deleted week.
+    db.transaction(() => {
+      const recipeIds = db
+        .prepare("SELECT id FROM recipes WHERE week_id = ?")
+        .all(weekId) as { id: number }[];
 
-    for (const recipe of recipeIds) {
-      const ingredientIds = db
-        .prepare("SELECT id FROM ingredients WHERE recipe_id = ?")
-        .all(recipe.id) as { id: number }[];
+      for (const recipe of recipeIds) {
+        const ingredientIds = db
+          .prepare("SELECT id FROM ingredients WHERE recipe_id = ?")
+          .all(recipe.id) as { id: number }[];
 
-      for (const ing of ingredientIds) {
-        db.prepare("DELETE FROM picnic_products WHERE ingredient_id = ?").run(ing.id);
+        for (const ing of ingredientIds) {
+          db.prepare("DELETE FROM picnic_products WHERE ingredient_id = ?").run(ing.id);
+        }
+        db.prepare("DELETE FROM ingredients WHERE recipe_id = ?").run(recipe.id);
       }
-      db.prepare("DELETE FROM ingredients WHERE recipe_id = ?").run(recipe.id);
-    }
 
-    db.prepare("DELETE FROM recipes WHERE week_id = ?").run(weekId);
-    db.prepare("DELETE FROM weeks WHERE id = ?").run(weekId);
+      db.prepare("DELETE FROM recipes WHERE week_id = ?").run(weekId);
+      db.prepare("DELETE FROM weeks WHERE id = ?").run(weekId);
+    })();
 
     return NextResponse.json({ success: true });
   } catch (error) {

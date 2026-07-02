@@ -6,6 +6,8 @@ import { getSetting, setSetting } from "./db";
 let client: any = null;
 let authenticated = false;
 let needsTwoFactor = false;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let loginInFlight: Promise<any> | null = null;
 
 export class PicnicTwoFactorRequiredError extends Error {
   constructor() {
@@ -58,34 +60,101 @@ export async function getPicnicClient(): Promise<any> {
       return client;
     }
 
-    console.log("[picnic] creating new PicnicClient and logging in...");
-    client = new PicnicClient({
-      countryCode: creds.countryCode,
-    });
-    try {
-      const loginResult = await client.login(creds.username, creds.password);
-      if (loginResult?.second_factor_authentication_required) {
-        console.log("[picnic] login requires 2FA");
-        needsTwoFactor = true;
-        authenticated = false;
-        throw new PicnicTwoFactorRequiredError();
-      }
-      authenticated = true;
-      needsTwoFactor = false;
-      // Persist auth key so it survives module reloads
-      setSetting("picnic_auth_key", client.authKey);
-      console.log("[picnic] login successful");
-    } catch (err) {
-      if (err instanceof PicnicTwoFactorRequiredError) throw err;
-      console.error("[picnic] login failed:", err);
-      client = null;
-      authenticated = false;
-      needsTwoFactor = false;
-      throw err;
+    // Deduplicate concurrent logins — two parallel requests would otherwise
+    // both call login(), and Picnic may invalidate the first session.
+    if (!loginInFlight) {
+      loginInFlight = doLogin(creds).finally(() => {
+        loginInFlight = null;
+      });
     }
+    return loginInFlight;
   }
 
   return client;
+}
+
+async function doLogin(creds: {
+  username: string;
+  password: string;
+  countryCode: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+}): Promise<any> {
+  console.log("[picnic] creating new PicnicClient and logging in...");
+  client = new PicnicClient({
+    countryCode: creds.countryCode,
+  });
+  try {
+    const loginResult = await client.login(creds.username, creds.password);
+    if (loginResult?.second_factor_authentication_required) {
+      console.log("[picnic] login requires 2FA");
+      needsTwoFactor = true;
+      authenticated = false;
+      throw new PicnicTwoFactorRequiredError();
+    }
+    authenticated = true;
+    needsTwoFactor = false;
+    // Persist auth key so it survives module reloads
+    setSetting("picnic_auth_key", client.authKey);
+    console.log("[picnic] login successful");
+    return client;
+  } catch (err) {
+    if (err instanceof PicnicTwoFactorRequiredError) throw err;
+    console.error("[picnic] login failed:", err);
+    client = null;
+    authenticated = false;
+    needsTwoFactor = false;
+    throw err;
+  }
+}
+
+/**
+ * Runs a Picnic call, resetting the client and retrying once on a 401
+ * (expired/invalid session — common when a stale stored auth key was restored).
+ */
+async function withAuthRetry<T>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  fn: (picnic: any) => Promise<T>
+): Promise<T> {
+  const picnic = await getPicnicClient();
+  try {
+    return await fn(picnic);
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message.includes("401")) {
+      console.warn("[picnic] 401 — resetting session and retrying once");
+      resetPicnicClient();
+      const retryClient = await getPicnicClient();
+      return fn(retryClient);
+    }
+    throw err;
+  }
+}
+
+export interface PicnicConnectionState {
+  authenticated: boolean;
+  needsTwoFactor: boolean;
+  hasClient: boolean;
+  error?: string;
+}
+
+/**
+ * Verifies the Picnic session actually works by making a cheap authenticated
+ * call. A restored auth key is trusted optimistically elsewhere; this is the
+ * one place that proves it. Never throws — returns state for the UI.
+ */
+export async function checkPicnicConnection(): Promise<PicnicConnectionState> {
+  try {
+    await withAuthRetry((picnic) => picnic.getUserDetails());
+    return { ...getPicnicAuthState() };
+  } catch (err) {
+    if (err instanceof PicnicTwoFactorRequiredError) {
+      return { ...getPicnicAuthState() };
+    }
+    return {
+      ...getPicnicAuthState(),
+      authenticated: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 export function resetPicnicClient(): void {
@@ -201,22 +270,15 @@ export function delay(ms: number): Promise<void> {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchSearch(query: string): Promise<any[]> {
-  const picnic = await getPicnicClient();
   try {
-    const results = await picnic.search(query);
+    const results = await withAuthRetry((picnic) => picnic.search(query));
     return Array.isArray(results) ? results : [];
   } catch (err: unknown) {
-    // 401 = expired session → reset and re-auth, then retry once
-    if (err instanceof Error && err.message.includes("401")) {
-      resetPicnicClient();
-      const retryClient = await getPicnicClient();
-      const results = await retryClient.search(query);
-      return Array.isArray(results) ? results : [];
-    }
     // 403 = rate limit → wait 5s and retry once
     if (err instanceof Error && err.message.includes("403")) {
       console.warn("[picnic] 403 rate limit, waiting 5s before retry...", err.message);
       await delay(5000);
+      const picnic = await getPicnicClient();
       const retryResult = await picnic.search(query);
       return Array.isArray(retryResult) ? retryResult : [];
     }
@@ -227,7 +289,6 @@ async function fetchSearch(query: string): Promise<any[]> {
 export async function rawSearch(query: string, limit: number = 5): Promise<RawSearchResult[]> {
   console.log("[picnic] rawSearch called with query:", query);
   const items = await fetchSearch(query);
-  console.log("[picnic] rawSearch results count:", items.length);
   console.log("[picnic] rawSearch results count:", items.length);
 
   const maxResults = Math.min(Math.max(limit, 1), 20);
@@ -269,37 +330,23 @@ export async function addToCart(
   productId: string,
   count: number = 1
 ): Promise<void> {
-  const picnic = await getPicnicClient();
-  await picnic.addProductToShoppingCart(productId, count);
+  await withAuthRetry((picnic) => picnic.addProductToShoppingCart(productId, count));
 }
 
-export async function removeFromCart(productId: string): Promise<void> {
-  const picnic = await getPicnicClient();
-  await picnic.removeProductFromShoppingCart(productId);
+export async function removeFromCart(productId: string, count: number = 1): Promise<void> {
+  await withAuthRetry((picnic) => picnic.removeProductFromShoppingCart(productId, count));
 }
 
 export async function getCart(): Promise<unknown> {
-  const picnic = await getPicnicClient();
-  return picnic.getShoppingCart();
+  return withAuthRetry((picnic) => picnic.getShoppingCart());
 }
 
 export async function clearCart(): Promise<void> {
-  const picnic = await getPicnicClient();
-  await picnic.clearShoppingCart();
+  await withAuthRetry((picnic) => picnic.clearShoppingCart());
 }
 
 async function fetchPDP(productId: string): Promise<unknown> {
-  const picnic = await getPicnicClient();
-  try {
-    return await picnic.getProductDetailsPage(productId);
-  } catch (err: unknown) {
-    if (err instanceof Error && err.message.includes("401")) {
-      resetPicnicClient();
-      const retryClient = await getPicnicClient();
-      return retryClient.getProductDetailsPage(productId);
-    }
-    throw err;
-  }
+  return withAuthRetry((picnic) => picnic.getProductDetailsPage(productId));
 }
 
 export async function getProductBundles(productId: string): Promise<import("./types").BundleOption[]> {

@@ -72,44 +72,48 @@ export async function POST(request: Request) {
     const body: CreateRecipeBody = await request.json();
     const db = getDb();
 
-    const result = db
-      .prepare(
-        `INSERT INTO recipes (week_id, title, description, servings, prep_time, instructions, night_number)
-         VALUES (NULL, ?, ?, ?, ?, ?, 0)`
-      )
-      .run(
-        body.title,
-        body.description || "",
-        body.servings,
-        body.prep_time || "",
-        body.instructions || ""
-      );
-
-    const recipeId = result.lastInsertRowid as number;
-
-    for (const ing of body.ingredients) {
-      const ingResult = db
+    const recipeId = db.transaction(() => {
+      const result = db
         .prepare(
-          `INSERT INTO ingredients (recipe_id, name, quantity, is_staple, category)
-           VALUES (?, ?, ?, ?, ?)`
+          `INSERT INTO recipes (week_id, title, description, servings, prep_time, instructions, night_number)
+           VALUES (NULL, ?, ?, ?, ?, ?, 0)`
         )
-        .run(recipeId, ing.name, ing.quantity || "", ing.is_staple ? 1 : 0, ing.category || "");
-
-      if (ing.picnic_product) {
-        const ingredientId = ingResult.lastInsertRowid as number;
-        db.prepare(
-          `INSERT INTO picnic_products (ingredient_id, picnic_id, name, image_id, price, unit_quantity)
-           VALUES (?, ?, ?, ?, ?, ?)`
-        ).run(
-          ingredientId,
-          ing.picnic_product.picnic_id,
-          ing.picnic_product.name,
-          ing.picnic_product.image_id || "",
-          ing.picnic_product.price || 0,
-          ing.picnic_product.unit_quantity || ""
+        .run(
+          body.title,
+          body.description || "",
+          body.servings,
+          body.prep_time || "",
+          body.instructions || ""
         );
+
+      const newRecipeId = result.lastInsertRowid as number;
+
+      for (const ing of body.ingredients) {
+        const ingResult = db
+          .prepare(
+            `INSERT INTO ingredients (recipe_id, name, quantity, is_staple, category)
+             VALUES (?, ?, ?, ?, ?)`
+          )
+          .run(newRecipeId, ing.name, ing.quantity || "", ing.is_staple ? 1 : 0, ing.category || "");
+
+        if (ing.picnic_product) {
+          const ingredientId = ingResult.lastInsertRowid as number;
+          db.prepare(
+            `INSERT INTO picnic_products (ingredient_id, picnic_id, name, image_id, price, unit_quantity)
+             VALUES (?, ?, ?, ?, ?, ?)`
+          ).run(
+            ingredientId,
+            ing.picnic_product.picnic_id,
+            ing.picnic_product.name,
+            ing.picnic_product.image_id || "",
+            ing.picnic_product.price || 0,
+            ing.picnic_product.unit_quantity || ""
+          );
+        }
       }
-    }
+
+      return newRecipeId;
+    })();
 
     return NextResponse.json({ id: recipeId });
   } catch (error) {

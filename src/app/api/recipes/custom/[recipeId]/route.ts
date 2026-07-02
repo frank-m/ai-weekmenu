@@ -9,6 +9,9 @@ export async function GET(
   try {
     const db = getDb();
     const recipeId = parseInt(params.recipeId);
+    if (isNaN(recipeId)) {
+      return NextResponse.json({ error: "Invalid recipe id" }, { status: 400 });
+    }
 
     const recipe = db
       .prepare("SELECT * FROM recipes WHERE id = ? AND week_id IS NULL")
@@ -56,6 +59,9 @@ export async function DELETE(
   try {
     const db = getDb();
     const recipeId = parseInt(params.recipeId);
+    if (isNaN(recipeId)) {
+      return NextResponse.json({ error: "Invalid recipe id" }, { status: 400 });
+    }
 
     const recipe = db
       .prepare("SELECT id FROM recipes WHERE id = ? AND week_id IS NULL")
@@ -69,17 +75,19 @@ export async function DELETE(
     }
 
     // Delete cascade: picnic_products → ingredients → recipe
-    const ingredientIds = db
-      .prepare("SELECT id FROM ingredients WHERE recipe_id = ?")
-      .all(recipeId) as { id: number }[];
+    db.transaction(() => {
+      const ingredientIds = db
+        .prepare("SELECT id FROM ingredients WHERE recipe_id = ?")
+        .all(recipeId) as { id: number }[];
 
-    for (const ing of ingredientIds) {
-      db.prepare("DELETE FROM picnic_products WHERE ingredient_id = ?").run(
-        ing.id
-      );
-    }
-    db.prepare("DELETE FROM ingredients WHERE recipe_id = ?").run(recipeId);
-    db.prepare("DELETE FROM recipes WHERE id = ?").run(recipeId);
+      for (const ing of ingredientIds) {
+        db.prepare("DELETE FROM picnic_products WHERE ingredient_id = ?").run(
+          ing.id
+        );
+      }
+      db.prepare("DELETE FROM ingredients WHERE recipe_id = ?").run(recipeId);
+      db.prepare("DELETE FROM recipes WHERE id = ?").run(recipeId);
+    })();
 
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -117,6 +125,9 @@ export async function PUT(
   try {
     const db = getDb();
     const recipeId = parseInt(params.recipeId);
+    if (isNaN(recipeId)) {
+      return NextResponse.json({ error: "Invalid recipe id" }, { status: 400 });
+    }
     const body: UpdateRecipeBody = await request.json();
 
     const recipe = db
@@ -130,61 +141,65 @@ export async function PUT(
       );
     }
 
-    // Update recipe fields
-    db.prepare(
-      `UPDATE recipes SET title = ?, description = ?, servings = ?, prep_time = ?, instructions = ?
-       WHERE id = ?`
-    ).run(
-      body.title,
-      body.description || "",
-      body.servings,
-      body.prep_time || "",
-      body.instructions || "",
-      recipeId
-    );
-
-    // Delete old ingredients and products
-    const oldIngredientIds = db
-      .prepare("SELECT id FROM ingredients WHERE recipe_id = ?")
-      .all(recipeId) as { id: number }[];
-
-    for (const ing of oldIngredientIds) {
-      db.prepare("DELETE FROM picnic_products WHERE ingredient_id = ?").run(
-        ing.id
+    // Transactional: a failure mid-way must not leave the recipe with its
+    // ingredients deleted but not re-inserted
+    db.transaction(() => {
+      // Update recipe fields
+      db.prepare(
+        `UPDATE recipes SET title = ?, description = ?, servings = ?, prep_time = ?, instructions = ?
+         WHERE id = ?`
+      ).run(
+        body.title,
+        body.description || "",
+        body.servings,
+        body.prep_time || "",
+        body.instructions || "",
+        recipeId
       );
-    }
-    db.prepare("DELETE FROM ingredients WHERE recipe_id = ?").run(recipeId);
 
-    // Re-insert ingredients
-    for (const ing of body.ingredients) {
-      const ingResult = db
-        .prepare(
-          `INSERT INTO ingredients (recipe_id, name, quantity, is_staple, category)
-           VALUES (?, ?, ?, ?, ?)`
-        )
-        .run(
-          recipeId,
-          ing.name,
-          ing.quantity || "",
-          ing.is_staple ? 1 : 0,
-          ing.category || ""
-        );
+      // Delete old ingredients and products
+      const oldIngredientIds = db
+        .prepare("SELECT id FROM ingredients WHERE recipe_id = ?")
+        .all(recipeId) as { id: number }[];
 
-      if (ing.picnic_product) {
-        const ingredientId = ingResult.lastInsertRowid as number;
-        db.prepare(
-          `INSERT INTO picnic_products (ingredient_id, picnic_id, name, image_id, price, unit_quantity)
-           VALUES (?, ?, ?, ?, ?, ?)`
-        ).run(
-          ingredientId,
-          ing.picnic_product.picnic_id,
-          ing.picnic_product.name,
-          ing.picnic_product.image_id || "",
-          ing.picnic_product.price || 0,
-          ing.picnic_product.unit_quantity || ""
+      for (const ing of oldIngredientIds) {
+        db.prepare("DELETE FROM picnic_products WHERE ingredient_id = ?").run(
+          ing.id
         );
       }
-    }
+      db.prepare("DELETE FROM ingredients WHERE recipe_id = ?").run(recipeId);
+
+      // Re-insert ingredients
+      for (const ing of body.ingredients) {
+        const ingResult = db
+          .prepare(
+            `INSERT INTO ingredients (recipe_id, name, quantity, is_staple, category)
+             VALUES (?, ?, ?, ?, ?)`
+          )
+          .run(
+            recipeId,
+            ing.name,
+            ing.quantity || "",
+            ing.is_staple ? 1 : 0,
+            ing.category || ""
+          );
+
+        if (ing.picnic_product) {
+          const ingredientId = ingResult.lastInsertRowid as number;
+          db.prepare(
+            `INSERT INTO picnic_products (ingredient_id, picnic_id, name, image_id, price, unit_quantity)
+             VALUES (?, ?, ?, ?, ?, ?)`
+          ).run(
+            ingredientId,
+            ing.picnic_product.picnic_id,
+            ing.picnic_product.name,
+            ing.picnic_product.image_id || "",
+            ing.picnic_product.price || 0,
+            ing.picnic_product.unit_quantity || ""
+          );
+        }
+      }
+    })();
 
     return NextResponse.json({ success: true });
   } catch (error) {

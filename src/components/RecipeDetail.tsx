@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { Recipe } from "@/lib/types";
 import Badge from "./ui/Badge";
 
@@ -9,8 +10,17 @@ interface RecipeDetailProps {
 }
 
 export default function RecipeDetail({ recipe, onClose }: RecipeDetailProps) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
       <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-6 border-b">
           <div>
@@ -22,6 +32,7 @@ export default function RecipeDetail({ recipe, onClose }: RecipeDetailProps) {
           </div>
           <button
             onClick={onClose}
+            aria-label="Close"
             className="text-gray-400 hover:text-gray-600"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

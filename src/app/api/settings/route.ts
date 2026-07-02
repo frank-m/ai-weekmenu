@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAllSettings, setSetting } from "@/lib/db";
+import { getAllSettings, getSetting, setSetting } from "@/lib/db";
 import { testApiKey } from "@/lib/gemini";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +16,8 @@ export async function GET() {
     if (masked.picnic_password) {
       masked.picnic_password = "********";
     }
+    // Internal session token — must never reach the browser
+    delete masked.picnic_auth_key;
     return NextResponse.json(masked);
   } catch (error) {
     return NextResponse.json(
@@ -36,7 +38,9 @@ export async function PUT(request: Request) {
       "picnic_country_code",
       "default_num_nights",
       "default_servings",
+      "default_calories",
       "week_title_format",
+      "exclude_staples_from_budget",
       "deals_enabled",
     ];
 
@@ -44,9 +48,10 @@ export async function PUT(request: Request) {
       if (!allowedKeys.includes(key)) continue;
       if (typeof value !== "string") continue;
 
-      // Don't overwrite with masked values from GET
-      if (key === "gemini_api_key" && value.includes("...")) continue;
-      if (key === "picnic_password" && value === "********") continue;
+      // Don't overwrite with masked values from GET, and treat an empty
+      // secret as "unchanged" (the form clears masked values on focus)
+      if (key === "gemini_api_key" && (value.includes("...") || !value)) continue;
+      if (key === "picnic_password" && (value === "********" || !value)) continue;
 
       if (key === "gemini_api_key" && value) {
         const valid = await testApiKey(value);
@@ -58,7 +63,10 @@ export async function PUT(request: Request) {
         }
       }
 
-      if (key.startsWith("picnic_")) {
+      // Only drop the Picnic session when a credential actually changed —
+      // resetting unconditionally wiped the stored auth key on every save,
+      // silently logging the user out (and forcing a fresh 2FA cycle).
+      if (key.startsWith("picnic_") && getSetting(key) !== value) {
         resetPicnicClient();
       }
 

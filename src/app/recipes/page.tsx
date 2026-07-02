@@ -10,16 +10,18 @@ import RecipeDetail from "@/components/RecipeDetail";
 export default function RecipesPage() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
 
   const loadRecipes = async () => {
     try {
       const res = await fetch("/api/recipes/custom");
+      if (!res.ok) throw new Error("load failed");
       const data = await res.json();
       setRecipes(Array.isArray(data) ? data : []);
     } catch {
-      // ignore
+      setError("Could not load your recipes.");
     }
     setLoading(false);
   };
@@ -28,13 +30,16 @@ export default function RecipesPage() {
     loadRecipes();
   }, []);
 
-  const handleDelete = async (id: number) => {
-    setDeletingId(id);
+  const handleDelete = async (recipe: Recipe) => {
+    if (!confirm(`Delete "${recipe.title}"? This cannot be undone.`)) return;
+    setDeletingId(recipe.id);
+    setError("");
     try {
-      await fetch(`/api/recipes/custom/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/recipes/custom/${recipe.id}`, { method: "DELETE" });
+      if (!res.ok) setError("Failed to delete recipe.");
       await loadRecipes();
     } catch {
-      // ignore
+      setError("Failed to delete recipe.");
     }
     setDeletingId(null);
   };
@@ -67,6 +72,12 @@ export default function RecipesPage() {
         </p>
       </div>
 
+      {error && (
+        <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg mb-4">
+          {error}
+        </p>
+      )}
+
       {recipes.length === 0 ? (
         <div className="text-center py-20">
           <h2 className="text-lg font-semibold text-gray-900 mb-2">
@@ -84,8 +95,16 @@ export default function RecipesPage() {
           {recipes.map((recipe) => (
             <div
               key={recipe.id}
-              className="bg-white rounded-xl border border-gray-200 p-4 hover:shadow-sm transition-shadow cursor-pointer"
+              role="button"
+              tabIndex={0}
+              className="bg-white rounded-xl border border-gray-200 p-4 hover:shadow-sm transition-shadow cursor-pointer focus:outline-none focus:ring-2 focus:ring-green-500"
               onClick={() => setSelectedRecipe(recipe)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setSelectedRecipe(recipe);
+                }
+              }}
             >
               <h3 className="font-semibold text-gray-900">{recipe.title}</h3>
               {recipe.description && (
@@ -112,7 +131,7 @@ export default function RecipesPage() {
                 <Button
                   variant="danger"
                   size="sm"
-                  onClick={() => handleDelete(recipe.id)}
+                  onClick={() => handleDelete(recipe)}
                   disabled={deletingId === recipe.id}
                 >
                   {deletingId === recipe.id ? "Deleting..." : "Delete"}

@@ -29,7 +29,10 @@ function migrateRecipesWeekIdNullable(db: Database.Database): void {
   const weekIdCol = columns.find((c) => c.name === "week_id");
   if (weekIdCol && weekIdCol.notnull === 1) {
     db.pragma("foreign_keys = OFF");
+    // Transactional: a crash between DROP and RENAME would otherwise leave
+    // the database without a recipes table
     db.exec(`
+      BEGIN;
       CREATE TABLE recipes_new (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         week_id INTEGER,
@@ -47,6 +50,7 @@ function migrateRecipesWeekIdNullable(db: Database.Database): void {
         SELECT id, week_id, title, description, servings, prep_time, instructions, night_number, source_recipe_id FROM recipes;
       DROP TABLE recipes;
       ALTER TABLE recipes_new RENAME TO recipes;
+      COMMIT;
     `);
     db.pragma("foreign_keys = ON");
   }
@@ -70,7 +74,16 @@ function tryDecrypt(value: string): string {
   try {
     return decryptValue(value);
   } catch {
-    // Old plaintext value — return as-is, will be encrypted on next write
+    // Old plaintext value — return as-is, will be encrypted on next write.
+    // If it looks like cryptr ciphertext (long pure-hex string), decryption
+    // genuinely failed (e.g. lost/changed encryption key) — warn instead of
+    // silently using ciphertext as a credential, which causes baffling auth
+    // failures.
+    if (/^[0-9a-f]{64,}$/i.test(value)) {
+      console.error(
+        "[db] Failed to decrypt a stored secret — the encryption key may have changed. Re-enter the credential in Settings."
+      );
+    }
     return value;
   }
 }

@@ -3,10 +3,13 @@ import { getProductPromoLabel, delay, PicnicTwoFactorRequiredError } from "@/lib
 
 export async function POST(request: Request) {
   try {
-    const { product_ids } = await request.json();
-    if (!Array.isArray(product_ids) || product_ids.length === 0) {
+    const { product_ids: requestedIds } = await request.json();
+    if (!Array.isArray(requestedIds) || requestedIds.length === 0) {
       return NextResponse.json({ promos: {} });
     }
+    // Each lookup is a serialized PDP fetch — cap the batch to keep one
+    // request from hammering Picnic (403 rate limits) or timing out
+    const product_ids = requestedIds.slice(0, 20);
 
     const promos: Record<string, string | null> = {};
     for (let i = 0; i < product_ids.length; i++) {

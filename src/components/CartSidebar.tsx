@@ -54,16 +54,26 @@ export default function CartSidebar({ refreshTrigger, onCartUpdate }: CartSideba
     loadCart();
   }, [loadCart, refreshTrigger]);
 
+  const [actionError, setActionError] = useState("");
+
+  const flashActionError = (message: string) => {
+    setActionError(message);
+    setTimeout(() => setActionError(""), 4000);
+  };
+
   const handleAdd = async (productId: string) => {
     setBusyItem(productId);
     try {
-      await fetch("/api/picnic/cart", {
+      const res = await fetch("/api/picnic/cart", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ product_id: productId }),
       });
+      if (!res.ok) flashActionError("Could not update cart");
       await loadCart();
       onCartUpdate?.();
+    } catch {
+      flashActionError("Could not update cart");
     } finally {
       setBusyItem(null);
     }
@@ -72,9 +82,12 @@ export default function CartSidebar({ refreshTrigger, onCartUpdate }: CartSideba
   const handleRemove = async (productId: string) => {
     setBusyItem(productId);
     try {
-      await fetch(`/api/picnic/cart/${productId}`, { method: "DELETE" });
+      const res = await fetch(`/api/picnic/cart/${productId}`, { method: "DELETE" });
+      if (!res.ok) flashActionError("Could not update cart");
       await loadCart();
       onCartUpdate?.();
+    } catch {
+      flashActionError("Could not update cart");
     } finally {
       setBusyItem(null);
     }
@@ -84,9 +97,12 @@ export default function CartSidebar({ refreshTrigger, onCartUpdate }: CartSideba
     if (!confirm("Clear entire Picnic cart?")) return;
     setClearing(true);
     try {
-      await fetch("/api/picnic/cart", { method: "DELETE" });
+      const res = await fetch("/api/picnic/cart", { method: "DELETE" });
+      if (!res.ok) flashActionError("Could not clear cart");
       await loadCart();
       onCartUpdate?.();
+    } catch {
+      flashActionError("Could not clear cart");
     } finally {
       setClearing(false);
     }
@@ -103,10 +119,14 @@ export default function CartSidebar({ refreshTrigger, onCartUpdate }: CartSideba
         Picnic Cart
       </h3>
 
+      {actionError && (
+        <p className="text-xs text-red-600 mb-2">{actionError}</p>
+      )}
+
       {loading ? (
         <Spinner size="sm" />
       ) : error ? (
-        <p className="text-xs text-gray-400">{error}</p>
+        <p className="text-xs text-red-500">{error}</p>
       ) : items.length === 0 ? (
         <p className="text-sm text-gray-400">Cart is empty</p>
       ) : (

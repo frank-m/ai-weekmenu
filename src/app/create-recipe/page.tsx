@@ -86,6 +86,7 @@ function CreateRecipePage() {
     emptyIngredient(),
   ]);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [loadingRecipe, setLoadingRecipe] = useState(isEditMode);
 
   useEffect(() => {
@@ -161,32 +162,36 @@ function CreateRecipePage() {
     setSteps(steps.filter((_, i) => i !== index));
   };
 
+  // All updates are functional (prev =>) so an in-flight Picnic search can't
+  // clobber edits the user made while it was running
+  const patchIngredient = (index: number, patch: Partial<IngredientRow>) => {
+    setIngredients((prev) =>
+      prev.map((row, i) => (i === index ? { ...row, ...patch } : row))
+    );
+  };
+
   const updateIngredient = (
     index: number,
     field: keyof IngredientRow,
     value: string | boolean
   ) => {
-    const next = [...ingredients];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (next[index] as any)[field] = value;
-    setIngredients(next);
+    patchIngredient(index, { [field]: value });
   };
 
   const addIngredient = () =>
-    setIngredients([...ingredients, emptyIngredient()]);
+    setIngredients((prev) => [...prev, emptyIngredient()]);
 
   const removeIngredient = (index: number) => {
-    if (ingredients.length <= 1) return;
-    setIngredients(ingredients.filter((_, i) => i !== index));
+    setIngredients((prev) =>
+      prev.length <= 1 ? prev : prev.filter((_, i) => i !== index)
+    );
   };
 
   const searchPicnic = async (index: number) => {
     const ing = ingredients[index];
     if (!ing.name.trim()) return;
 
-    const next = [...ingredients];
-    next[index] = { ...next[index], searching: true, searchResults: [], visibleCount: RESULTS_PER_PAGE };
-    setIngredients(next);
+    patchIngredient(index, { searching: true, searchResults: [], visibleCount: RESULTS_PER_PAGE });
 
     try {
       const res = await fetch("/api/picnic/search/products", {
@@ -195,25 +200,18 @@ function CreateRecipePage() {
         body: JSON.stringify({ query: ing.name }),
       });
       const data = await res.json();
-      const updated = [...ingredients];
-      updated[index] = {
-        ...updated[index],
+      patchIngredient(index, {
         searching: false,
         searchResults: Array.isArray(data.products) ? data.products : [],
         visibleCount: RESULTS_PER_PAGE,
-      };
-      setIngredients(updated);
+      });
     } catch {
-      const updated = [...ingredients];
-      updated[index] = { ...updated[index], searching: false };
-      setIngredients(updated);
+      patchIngredient(index, { searching: false });
     }
   };
 
   const selectProduct = (ingIndex: number, product: SearchResult) => {
-    const next = [...ingredients];
-    next[ingIndex] = {
-      ...next[ingIndex],
+    patchIngredient(ingIndex, {
       picnic_product: {
         picnic_id: product.id,
         name: product.name,
@@ -222,28 +220,27 @@ function CreateRecipePage() {
         unit_quantity: product.unit_quantity,
       },
       searchResults: [],
-    };
-    setIngredients(next);
+    });
   };
 
   const clearProduct = (index: number) => {
-    const next = [...ingredients];
-    next[index] = { ...next[index], picnic_product: undefined };
-    setIngredients(next);
+    patchIngredient(index, { picnic_product: undefined });
   };
 
   const showMore = (index: number) => {
-    const next = [...ingredients];
-    next[index] = {
-      ...next[index],
-      visibleCount: next[index].visibleCount + RESULTS_PER_PAGE,
-    };
-    setIngredients(next);
+    setIngredients((prev) =>
+      prev.map((row, i) =>
+        i === index
+          ? { ...row, visibleCount: row.visibleCount + RESULTS_PER_PAGE }
+          : row
+      )
+    );
   };
 
   const handleSave = async () => {
     if (!title.trim()) return;
     setSaving(true);
+    setSaveError("");
 
     const instructions = steps
       .filter((s) => s.trim())
@@ -281,9 +278,12 @@ function CreateRecipePage() {
 
       if (res.ok) {
         router.push("/recipes");
+        return;
       }
+      const data = await res.json().catch(() => ({}));
+      setSaveError(data.error || "Failed to save recipe — please try again.");
     } catch {
-      // ignore
+      setSaveError("Failed to save recipe — please try again.");
     }
     setSaving(false);
   };
@@ -605,6 +605,11 @@ function CreateRecipePage() {
         </div>
 
         {/* Save */}
+        {saveError && (
+          <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">
+            {saveError}
+          </p>
+        )}
         <div className="flex justify-end gap-3">
           <Link href="/recipes">
             <Button variant="secondary">Cancel</Button>

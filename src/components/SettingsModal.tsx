@@ -27,15 +27,22 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
 
-  // 2FA state
+  // Picnic connection state
+  const [picnicConnected, setPicnicConnected] = useState<boolean | null>(null);
   const [twoFactorNeeded, setTwoFactorNeeded] = useState(false);
   const [twoFactorCodeSent, setTwoFactorCodeSent] = useState(false);
   const [twoFactorCode, setTwoFactorCode] = useState("");
   const [twoFactorLoading, setTwoFactorLoading] = useState(false);
   const [twoFactorError, setTwoFactorError] = useState("");
-  const [twoFactorSuccess, setTwoFactorSuccess] = useState(false);
   const [connectLoading, setConnectLoading] = useState(false);
   const [connectError, setConnectError] = useState("");
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     fetch("/api/settings")
@@ -49,6 +56,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
     fetch("/api/picnic/2fa")
       .then((r) => r.json())
       .then((data) => {
+        setPicnicConnected(!!data.authenticated);
         setTwoFactorNeeded(!!data.needsTwoFactor);
       })
       .catch(() => {});
@@ -60,14 +68,12 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
     try {
       const res = await fetch("/api/picnic/2fa", { method: "POST" });
       const data = await res.json();
-      if (!res.ok) {
+      setPicnicConnected(!!data.authenticated);
+      setTwoFactorNeeded(!!data.needsTwoFactor);
+      if (!data.authenticated && !data.needsTwoFactor) {
         setConnectError(data.error || "Failed to connect");
-      } else {
-        setTwoFactorNeeded(!!data.needsTwoFactor);
-        if (data.authenticated) {
-          setTwoFactorSuccess(true);
-        }
       }
+      window.dispatchEvent(new Event("picnic:status-changed"));
     } catch {
       setConnectError("Failed to connect");
     }
@@ -110,10 +116,11 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
       if (!res.ok) {
         setTwoFactorError(data.error || "Verification failed");
       } else {
-        setTwoFactorSuccess(true);
+        setPicnicConnected(true);
         setTwoFactorNeeded(false);
         setTwoFactorCodeSent(false);
         setTwoFactorCode("");
+        window.dispatchEvent(new Event("picnic:status-changed"));
       }
     } catch {
       setTwoFactorError("Verification failed");
@@ -137,6 +144,11 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
       } else {
         setSuccess(true);
         setTimeout(() => setSuccess(false), 2000);
+        // Re-verify the Picnic connection — saving changed credentials resets
+        // the session, and the user should see the resulting state right away.
+        if (settings.picnic_username) {
+          handleConnect();
+        }
       }
     } catch {
       setError("Failed to save settings");
@@ -145,12 +157,16 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
       <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-6 border-b">
           <h2 className="text-lg font-semibold">Settings</h2>
           <button
             onClick={onClose}
+            aria-label="Close"
             className="text-gray-400 hover:text-gray-600"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -178,6 +194,13 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                     onChange={(e) =>
                       setSettings({ ...settings, gemini_api_key: e.target.value })
                     }
+                    onFocus={() => {
+                      // Masked placeholder from GET — clear so the user can't
+                      // accidentally save an edited mask as their key
+                      if (settings.gemini_api_key.includes("...")) {
+                        setSettings({ ...settings, gemini_api_key: "" });
+                      }
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
                     placeholder="AIza..."
                   />
@@ -198,17 +221,56 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                     <option value="gemini-2.5-flash-lite">
                       Gemini 2.5 Flash Lite
                     </option>
-                    <option value="gemini-3-flash-preview">Gemini 3 Flash (Preview)</option>
+                    <option value="gemini-3.0-flash-preview">Gemini 3 Flash (Preview)</option>
                     <option value="gemini-3-pro-preview">Gemini 3 Pro (Preview)</option>
+                    {![
+                      "gemini-2.5-flash",
+                      "gemini-2.5-pro",
+                      "gemini-2.5-flash-lite",
+                      "gemini-3.0-flash-preview",
+                      "gemini-3-pro-preview",
+                    ].includes(settings.gemini_model) && (
+                      <option value={settings.gemini_model}>
+                        {settings.gemini_model} (current)
+                      </option>
+                    )}
                   </select>
                 </div>
               </div>
             </div>
 
             <div>
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">
-                Picnic Grocery
-              </h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-gray-900">
+                  Picnic Grocery
+                </h3>
+                {picnicConnected !== null && (
+                  <span
+                    className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${
+                      picnicConnected
+                        ? "bg-green-50 text-green-700"
+                        : twoFactorNeeded
+                          ? "bg-amber-50 text-amber-700"
+                          : "bg-red-50 text-red-700"
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        picnicConnected
+                          ? "bg-green-500"
+                          : twoFactorNeeded
+                            ? "bg-amber-500"
+                            : "bg-red-500"
+                      }`}
+                    />
+                    {picnicConnected
+                      ? "Connected"
+                      : twoFactorNeeded
+                        ? "2FA required"
+                        : "Not connected"}
+                  </span>
+                )}
+              </div>
               <div className="space-y-3">
                 <div>
                   <label className="block text-sm text-gray-600 mb-1">
@@ -239,6 +301,11 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                         picnic_password: e.target.value,
                       })
                     }
+                    onFocus={() => {
+                      if (settings.picnic_password === "********") {
+                        setSettings({ ...settings, picnic_password: "" });
+                      }
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
                   />
                 </div>
@@ -263,14 +330,18 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                 </div>
               </div>
 
-              {settings.picnic_username && !twoFactorNeeded && !twoFactorSuccess && (
+              {settings.picnic_username && !twoFactorNeeded && (
                 <div className="mt-4">
                   <Button
                     variant="secondary"
                     onClick={handleConnect}
                     disabled={connectLoading}
                   >
-                    {connectLoading ? "Connecting..." : "Connect to Picnic"}
+                    {connectLoading
+                      ? "Connecting..."
+                      : picnicConnected
+                        ? "Re-check connection"
+                        : "Connect to Picnic"}
                   </Button>
                   {connectError && (
                     <p className="text-xs text-red-600 mt-2">{connectError}</p>
@@ -278,51 +349,45 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                 </div>
               )}
 
-              {(twoFactorNeeded || twoFactorSuccess) && (
-                <div className={`mt-4 p-3 rounded-lg border ${twoFactorSuccess ? "bg-green-50 border-green-200" : "bg-amber-50 border-amber-200"}`}>
-                  {twoFactorSuccess ? (
-                    <p className="text-sm text-green-700 font-medium">Two-factor authentication verified. Picnic is now connected.</p>
+              {twoFactorNeeded && (
+                <div className="mt-4 p-3 rounded-lg border bg-amber-50 border-amber-200">
+                  <p className="text-sm font-medium text-amber-800 mb-2">
+                    Two-factor authentication required
+                  </p>
+                  <p className="text-xs text-amber-700 mb-3">
+                    Your Picnic account has 2FA enabled. Click &quot;Send SMS code&quot; to receive a verification code, then enter it below.
+                  </p>
+                  {!twoFactorCodeSent ? (
+                    <Button
+                      variant="secondary"
+                      onClick={handleSendTwoFactorCode}
+                      disabled={twoFactorLoading}
+                    >
+                      {twoFactorLoading ? "Sending..." : "Send SMS code"}
+                    </Button>
                   ) : (
-                    <>
-                      <p className="text-sm font-medium text-amber-800 mb-2">
-                        Two-factor authentication required
-                      </p>
-                      <p className="text-xs text-amber-700 mb-3">
-                        Your Picnic account has 2FA enabled. Click &quot;Send SMS code&quot; to receive a verification code, then enter it below.
-                      </p>
-                      {!twoFactorCodeSent ? (
-                        <Button
-                          variant="secondary"
-                          onClick={handleSendTwoFactorCode}
-                          disabled={twoFactorLoading}
-                        >
-                          {twoFactorLoading ? "Sending..." : "Send SMS code"}
-                        </Button>
-                      ) : (
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            pattern="[0-9]*"
-                            maxLength={6}
-                            value={twoFactorCode}
-                            onChange={(e) => setTwoFactorCode(e.target.value)}
-                            placeholder="6-digit code"
-                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                            onKeyDown={(e) => { if (e.key === "Enter") handleVerifyTwoFactor(); }}
-                          />
-                          <Button
-                            onClick={handleVerifyTwoFactor}
-                            disabled={twoFactorLoading || !twoFactorCode.trim()}
-                          >
-                            {twoFactorLoading ? "Verifying..." : "Verify"}
-                          </Button>
-                        </div>
-                      )}
-                      {twoFactorError && (
-                        <p className="text-xs text-red-600 mt-2">{twoFactorError}</p>
-                      )}
-                    </>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        maxLength={6}
+                        value={twoFactorCode}
+                        onChange={(e) => setTwoFactorCode(e.target.value)}
+                        placeholder="6-digit code"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        onKeyDown={(e) => { if (e.key === "Enter") handleVerifyTwoFactor(); }}
+                      />
+                      <Button
+                        onClick={handleVerifyTwoFactor}
+                        disabled={twoFactorLoading || !twoFactorCode.trim()}
+                      >
+                        {twoFactorLoading ? "Verifying..." : "Verify"}
+                      </Button>
+                    </div>
+                  )}
+                  {twoFactorError && (
+                    <p className="text-xs text-red-600 mt-2">{twoFactorError}</p>
                   )}
                 </div>
               )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Week, LeftoverItem, FrequentItem, BundleOption } from "@/lib/types";
@@ -33,6 +33,11 @@ export default function WeekDetailPage() {
   const [frequentQuantityOverrides, setFrequentQuantityOverrides] = useState<Record<number, number>>({});
   const [frequentPromos, setFrequentPromos] = useState<Record<string, string | null>>({});
   const [bundleModalItem, setBundleModalItem] = useState<FrequentItem | null>(null);
+  const [rematching, setRematching] = useState(false);
+  const [rematchError, setRematchError] = useState("");
+  // Titles rejected via regenerate this session, per recipe id — sent along so
+  // the next regeneration doesn't suggest them again
+  const rejectedTitlesRef = useRef<Record<number, string[]>>({});
 
   const loadWeek = useCallback(async () => {
     try {
@@ -140,13 +145,28 @@ export default function WeekDetailPage() {
 
   const handleRegenerate = async (recipeId: number) => {
     if (!confirm("Regenerate this recipe? The current recipe will be replaced.")) return;
+    // Remember the title being replaced so the server won't suggest it again
+    const currentTitle = week?.recipes?.find((r) => r.id === recipeId)?.title;
+    if (currentTitle) {
+      const prev = rejectedTitlesRef.current[recipeId] || [];
+      if (!prev.includes(currentTitle)) {
+        rejectedTitlesRef.current[recipeId] = [...prev, currentTitle];
+      }
+    }
     setRegeneratingRecipe(recipeId);
     try {
       const res = await fetch(`/api/recipes/${recipeId}/regenerate`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rejected_titles: rejectedTitlesRef.current[recipeId] || [],
+        }),
       });
       if (!res.ok) {
         const data = await res.json();
+        if (data.error === "picnic_2fa_required") {
+          window.dispatchEvent(new Event("picnic:2fa-required"));
+        }
         setError(data.error || "Failed to regenerate recipe");
       }
       await loadWeek();
@@ -154,6 +174,31 @@ export default function WeekDetailPage() {
       setError("Failed to regenerate recipe");
     }
     setRegeneratingRecipe(null);
+  };
+
+  const handleRematch = async () => {
+    setRematching(true);
+    setRematchError("");
+    try {
+      const res = await fetch(`/api/weeks/${weekId}/rematch`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.error === "picnic_2fa_required") {
+          window.dispatchEvent(new Event("picnic:2fa-required"));
+          setRematchError("Picnic needs two-factor verification — Settings will open.");
+        } else {
+          setRematchError(data.error || "Matching failed");
+        }
+      } else if (data.matched === 0 && data.remaining > 0) {
+        setRematchError(
+          "No products found. Check that Picnic is connected (see the status in the top bar)."
+        );
+      }
+      await loadWeek();
+    } catch {
+      setRematchError("Matching failed");
+    }
+    setRematching(false);
   };
 
   const getFrequentQuantity = (item: FrequentItem) =>
@@ -217,8 +262,23 @@ export default function WeekDetailPage() {
   const weekTotal = (week?.recipes || []).reduce((sum, recipe) => {
     return sum + (recipe.ingredients || [])
       .filter((i) => !i.is_staple && i.picnic_product)
-      .reduce((s, i) => s + i.picnic_product!.price, 0);
+      .reduce(
+        (s, i) =>
+          s + i.picnic_product!.price * Math.max(1, i.picnic_product!.quantity || 1),
+        0
+      );
   }, 0);
+
+  // Non-staple ingredients without a matched Picnic product (staples are
+  // pantry items and never bought, so they don't count)
+  const unmatchedCount = (week?.recipes || []).reduce(
+    (sum, recipe) =>
+      sum +
+      (recipe.ingredients || []).filter(
+        (i) => !i.is_staple && !i.picnic_product && !isLeftoverIngredient(i.name)
+      ).length,
+    0
+  );
 
   if (loading) {
     return (
@@ -279,6 +339,28 @@ export default function WeekDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Unmatched ingredients warning */}
+      {unmatchedCount > 0 && (
+        <div className="mb-6 p-4 rounded-xl border border-amber-200 bg-amber-50 flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex-1">
+            <p className="text-sm font-medium text-amber-800">
+              {unmatchedCount} ingredient{unmatchedCount === 1 ? " has" : "s have"} no matched Picnic product
+            </p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              This usually means Picnic wasn&apos;t connected when the menu was created.
+              {rematchError && <span className="text-red-600"> {rematchError}</span>}
+            </p>
+          </div>
+          <button
+            onClick={handleRematch}
+            disabled={rematching}
+            className="shrink-0 bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-700 transition-colors disabled:opacity-50"
+          >
+            {rematching ? "Matching..." : "Retry matching"}
+          </button>
+        </div>
+      )}
 
       {/* Main content */}
       <div className="flex gap-6 flex-col lg:flex-row">
