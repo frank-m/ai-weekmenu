@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { generateRecipes } from "@/lib/gemini";
+import { generateRecipes, getVarietyContext } from "@/lib/gemini";
 import { WeekPreferences } from "@/lib/types";
 
 export async function POST(request: Request) {
@@ -15,7 +15,9 @@ export async function POST(request: Request) {
       body.num_recipes,
       body.servings,
       body.preferences,
-      body.existing_titles || []
+      body.existing_titles || [],
+      undefined,
+      getVarietyContext()
     );
 
     return NextResponse.json(recipes);

@@ -1,21 +1,33 @@
 import { NextResponse } from "next/server";
-import { getPicnicAuthState, getPicnicClient, PicnicTwoFactorRequiredError } from "@/lib/picnic";
+import { getPicnicAuthState, checkPicnicConnection } from "@/lib/picnic";
+import { getSetting } from "@/lib/db";
+
+function credentialsConfigured(): boolean {
+  const username = getSetting("picnic_username") || process.env.PICNIC_USERNAME || "";
+  const password = getSetting("picnic_password") || process.env.PICNIC_PASSWORD || "";
+  return !!username && !!password;
+}
 
 export async function GET() {
   const state = getPicnicAuthState();
-  return NextResponse.json(state);
+  return NextResponse.json({ ...state, configured: credentialsConfigured() });
 }
 
-/** Proactively trigger login so we can detect whether 2FA is required. */
+/**
+ * Verifies the Picnic connection end-to-end: logs in if needed and makes a
+ * cheap authenticated call, so a stale restored auth key is detected here
+ * instead of failing silently during ingredient matching later.
+ */
 export async function POST() {
-  try {
-    await getPicnicClient();
-  } catch (err) {
-    if (!(err instanceof PicnicTwoFactorRequiredError)) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      return NextResponse.json({ error: message }, { status: 500 });
-    }
-    // PicnicTwoFactorRequiredError is expected — fall through and return state
+  if (!credentialsConfigured()) {
+    return NextResponse.json({
+      authenticated: false,
+      needsTwoFactor: false,
+      hasClient: false,
+      configured: false,
+      error: "Picnic credentials not configured",
+    });
   }
-  return NextResponse.json(getPicnicAuthState());
+  const state = await checkPicnicConnection();
+  return NextResponse.json({ ...state, configured: true });
 }

@@ -1,16 +1,30 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { generateRecipes, matchIngredientsToProducts } from "@/lib/gemini";
-import { searchProduct, delay } from "@/lib/picnic";
+import { generateRecipes, matchIngredientsToProducts, getVarietyContext } from "@/lib/gemini";
+import { searchProduct, delay, PicnicTwoFactorRequiredError } from "@/lib/picnic";
 import { Recipe, Week, WeekPreferences, LeftoverItem } from "@/lib/types";
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ recipeId: string }> }
 ) {
   try {
     const { recipeId } = await params;
     const db = getDb();
+
+    // Titles the user already rejected in this regenerate session (kept by
+    // the client) — prevents bouncing back to an earlier suggestion
+    let rejectedTitles: string[] = [];
+    try {
+      const body = await request.json();
+      if (Array.isArray(body?.rejected_titles)) {
+        rejectedTitles = body.rejected_titles.filter(
+          (t: unknown): t is string => typeof t === "string"
+        );
+      }
+    } catch {
+      // No/invalid body — fine, it's optional
+    }
 
     // 1. Look up recipe
     const recipe = db
@@ -64,45 +78,56 @@ export async function POST(
       filteredPreferences = { ...preferences, leftovers: undefined };
     }
 
-    // 4. Generate one new recipe
-    const generated = await generateRecipes(1, week.servings, filteredPreferences, siblingTitles, recipe.title);
+    // 4. Generate one new recipe, avoiding recent weeks' dishes, disliked
+    // dishes, and anything already rejected in this session
+    const variety = getVarietyContext(recipe.week_id ?? undefined);
+    variety.rejectedTitles = rejectedTitles;
+    const generated = await generateRecipes(
+      1,
+      week.servings,
+      filteredPreferences,
+      siblingTitles,
+      recipe.title,
+      variety
+    );
     if (!generated.length) {
       return NextResponse.json({ error: "Failed to generate recipe" }, { status: 500 });
     }
     const newRecipe = generated[0];
 
-    // 5. Delete old data: picnic_products → ingredients, then update recipe row
-    const oldIngredientIds = (
-      db
-        .prepare("SELECT id FROM ingredients WHERE recipe_id = ?")
-        .all(recipeId) as { id: number }[]
-    ).map((i) => i.id);
+    // 5+6. Swap old recipe data for the new one atomically
+    db.transaction(() => {
+      const oldIngredientIds = (
+        db
+          .prepare("SELECT id FROM ingredients WHERE recipe_id = ?")
+          .all(recipeId) as { id: number }[]
+      ).map((i) => i.id);
 
-    if (oldIngredientIds.length > 0) {
+      if (oldIngredientIds.length > 0) {
+        db.prepare(
+          `DELETE FROM picnic_products WHERE ingredient_id IN (${oldIngredientIds.join(",")})`
+        ).run();
+      }
+      db.prepare("DELETE FROM ingredients WHERE recipe_id = ?").run(recipeId);
+
       db.prepare(
-        `DELETE FROM picnic_products WHERE ingredient_id IN (${oldIngredientIds.join(",")})`
-      ).run();
-    }
-    db.prepare("DELETE FROM ingredients WHERE recipe_id = ?").run(recipeId);
+        "UPDATE recipes SET title = ?, description = ?, servings = ?, prep_time = ?, instructions = ?, calories_per_serving = ?, source_recipe_id = NULL, rating = NULL WHERE id = ?"
+      ).run(
+        newRecipe.title,
+        newRecipe.description,
+        newRecipe.servings,
+        newRecipe.prep_time,
+        newRecipe.instructions,
+        newRecipe.calories_per_serving || 0,
+        recipeId
+      );
 
-    db.prepare(
-      "UPDATE recipes SET title = ?, description = ?, servings = ?, prep_time = ?, instructions = ?, calories_per_serving = ?, source_recipe_id = NULL WHERE id = ?"
-    ).run(
-      newRecipe.title,
-      newRecipe.description,
-      newRecipe.servings,
-      newRecipe.prep_time,
-      newRecipe.instructions,
-      newRecipe.calories_per_serving || 0,
-      recipeId
-    );
-
-    // 6. Insert new ingredients
-    for (const ing of newRecipe.ingredients) {
-      db.prepare(
-        "INSERT INTO ingredients (recipe_id, name, quantity, is_staple, category) VALUES (?, ?, ?, ?, ?)"
-      ).run(recipeId, ing.name, ing.quantity, ing.is_staple ? 1 : 0, ing.category);
-    }
+      for (const ing of newRecipe.ingredients) {
+        db.prepare(
+          "INSERT INTO ingredients (recipe_id, name, quantity, is_staple, category) VALUES (?, ?, ?, ?, ?)"
+        ).run(recipeId, ing.name, ing.quantity, ing.is_staple ? 1 : 0, ing.category);
+      }
+    })();
 
     // 7. Match new ingredients to Picnic products
     const newIngredients = db
@@ -118,18 +143,28 @@ export async function POST(
       ([name, quantity]) => ({ name, quantity })
     );
 
-    let productMap: Record<string, { picnic_id: string; name: string; image_id: string; price: number; unit_quantity: string } | null> = {};
+    // Matching failures must not fail the request — the recipe swap is done;
+    // the week page shows a banner with a rematch option for the rest.
+    let matchingStatus: "ok" | "2fa_required" | "failed" = "ok";
+    let productMap: Record<string, { picnic_id: string; name: string; image_id: string; price: number; unit_quantity: string; quantity?: number } | null> = {};
     try {
-      productMap = await matchIngredientsToProducts(uniqueIngredients);
-    } catch {
-      for (const { name } of uniqueIngredients) {
-        await delay(500);
-        try {
-          productMap[name] = await searchProduct(name);
-        } catch {
-          productMap[name] = null;
+      try {
+        productMap = await matchIngredientsToProducts(uniqueIngredients);
+      } catch (err) {
+        if (err instanceof PicnicTwoFactorRequiredError) throw err;
+        for (const { name } of uniqueIngredients) {
+          await delay(500);
+          try {
+            productMap[name] = await searchProduct(name);
+          } catch (searchErr) {
+            if (searchErr instanceof PicnicTwoFactorRequiredError) throw searchErr;
+            productMap[name] = null;
+          }
         }
       }
+    } catch (err) {
+      matchingStatus = err instanceof PicnicTwoFactorRequiredError ? "2fa_required" : "failed";
+      console.error("[regenerate] Picnic matching skipped:", err);
     }
 
     for (const ing of newIngredients) {
@@ -137,12 +172,12 @@ export async function POST(
       const product = productMap[normalizedName];
       if (product) {
         db.prepare(
-          "INSERT INTO picnic_products (ingredient_id, picnic_id, name, image_id, price, unit_quantity) VALUES (?, ?, ?, ?, ?, ?)"
-        ).run(ing.id, product.picnic_id, product.name, product.image_id, product.price, product.unit_quantity);
+          "INSERT INTO picnic_products (ingredient_id, picnic_id, name, image_id, price, unit_quantity, quantity) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ).run(ing.id, product.picnic_id, product.name, product.image_id, product.price, product.unit_quantity, product.quantity ?? 1);
       }
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, picnic_matching: matchingStatus });
   } catch (error) {
     console.error("[regenerate] error:", error);
     return NextResponse.json({ error: String(error) }, { status: 500 });

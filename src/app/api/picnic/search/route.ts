@@ -16,9 +16,17 @@ export async function PUT(request: Request) {
     }
 
     const db = getDb();
-    db.prepare(
+    const result = db.prepare(
       "UPDATE picnic_products SET picnic_id = ?, name = ?, image_id = ?, price = ?, unit_quantity = ? WHERE ingredient_id = ?"
     ).run(picnic_id, name, image_id, price, unit_quantity, ingredient_id);
+
+    // Ingredient had no matched product yet (e.g. matching failed at week
+    // creation) — insert instead of silently updating zero rows
+    if (result.changes === 0) {
+      db.prepare(
+        "INSERT INTO picnic_products (ingredient_id, picnic_id, name, image_id, price, unit_quantity) VALUES (?, ?, ?, ?, ?, ?)"
+      ).run(ingredient_id, picnic_id, name, image_id, price, unit_quantity);
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error) {
@@ -59,14 +67,15 @@ export async function POST(request: Request) {
       );
       // Insert new match
       db.prepare(
-        "INSERT INTO picnic_products (ingredient_id, picnic_id, name, image_id, price, unit_quantity) VALUES (?, ?, ?, ?, ?, ?)"
+        "INSERT INTO picnic_products (ingredient_id, picnic_id, name, image_id, price, unit_quantity, quantity) VALUES (?, ?, ?, ?, ?, ?, ?)"
       ).run(
         body.ingredient_id,
         match.picnic_id,
         match.name,
         match.image_id,
         match.price,
-        match.unit_quantity
+        match.unit_quantity,
+        match.quantity ?? 1
       );
     }
 

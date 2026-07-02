@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Recipe } from "@/lib/types";
 import Badge from "./ui/Badge";
 import Button from "./ui/Button";
@@ -33,15 +33,29 @@ export default function RecipeCard({
   const [showStaples, setShowStaples] = useState(false);
   const [rating, setRating] = useState<number | null>(recipe.rating ?? null);
 
+  // Keep in sync when the parent re-fetches the week (e.g. after regenerate)
+  useEffect(() => {
+    setRating(recipe.rating ?? null);
+  }, [recipe.rating]);
+
   const handleRate = async (value: 1 | -1) => {
+    const previous = rating;
     const newRating = rating === value ? null : value;
     setRating(newRating);
-    await fetch(`/api/recipes/${recipe.id}/rating`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rating: newRating }),
-    });
-    onRatingChange?.(recipe.id, newRating);
+    try {
+      const res = await fetch(`/api/recipes/${recipe.id}/rating`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rating: newRating }),
+      });
+      if (!res.ok) {
+        setRating(previous);
+        return;
+      }
+      onRatingChange?.(recipe.id, newRating);
+    } catch {
+      setRating(previous);
+    }
   };
   const ingredients = recipe.ingredients || [];
   const isLeftover = (name: string) => {
@@ -56,13 +70,18 @@ export default function RecipeCard({
   );
 
   const recipeTotal = nonStaples.reduce((sum, i) => {
-    if (i.picnic_product) return sum + i.picnic_product.price;
+    if (i.picnic_product) {
+      return (
+        sum + i.picnic_product.price * Math.max(1, i.picnic_product.quantity || 1)
+      );
+    }
     return sum;
   }, 0);
 
   return (
     <>
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {/* No overflow-hidden: the ingredient search popup extends past the card */}
+      <div className="bg-white rounded-xl border border-gray-200">
         <div className="p-5">
           <div className="flex items-start justify-between mb-2">
             <div>

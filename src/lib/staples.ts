@@ -30,13 +30,23 @@ export const DEFAULT_STAPLES = [
 
 function seedStaples(): void {
   const db = getDb();
-  const count = db.prepare("SELECT COUNT(*) as cnt FROM staples").get() as { cnt: number };
-  if (count.cnt === 0) {
+  // Seed exactly once (tracked in settings) — checking COUNT(*)==0 would
+  // resurrect all defaults after a user deliberately empties the list
+  const seeded = db
+    .prepare("SELECT value FROM settings WHERE key = 'staples_seeded'")
+    .get() as { value: string } | undefined;
+  if (!seeded) {
     const insert = db.prepare("INSERT OR IGNORE INTO staples (name) VALUES (?)");
     const tx = db.transaction(() => {
-      for (const name of DEFAULT_STAPLES) {
-        insert.run(name);
+      const count = db.prepare("SELECT COUNT(*) as cnt FROM staples").get() as { cnt: number };
+      if (count.cnt === 0) {
+        for (const name of DEFAULT_STAPLES) {
+          insert.run(name);
+        }
       }
+      db.prepare(
+        "INSERT INTO settings (key, value) VALUES ('staples_seeded', '1') ON CONFLICT(key) DO NOTHING"
+      ).run();
     });
     tx();
   }

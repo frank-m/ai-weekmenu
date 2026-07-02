@@ -8,21 +8,28 @@ import Spinner from "@/components/ui/Spinner";
 
 export default function HomePage() {
   const [weeks, setWeeks] = useState<Week[]>([]);
-  const [dealsEnabled, setDealsEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  useEffect(() => {
-    Promise.all([
-      fetch("/api/weeks").then((r) => r.json()),
-      fetch("/api/settings").then((r) => r.json()),
-    ])
-      .then(([weeksData, settingsData]) => {
+  const loadWeeks = () => {
+    setLoading(true);
+    setError("");
+    fetch("/api/weeks")
+      .then((r) => {
+        if (!r.ok) throw new Error("Failed to load weeks");
+        return r.json();
+      })
+      .then((weeksData) => {
         setWeeks(Array.isArray(weeksData) ? weeksData : []);
-        setDealsEnabled(settingsData?.deals_enabled === "true");
         setLoading(false);
       })
-      .catch(() => setLoading(false));
-  }, []);
+      .catch(() => {
+        setError("Could not load your weeks. Please try again.");
+        setLoading(false);
+      });
+  };
+
+  useEffect(loadWeeks, []);
 
   if (loading) {
     return (
@@ -32,50 +39,24 @@ export default function HomePage() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="text-center py-20">
+        <p className="text-gray-600 mb-4">{error}</p>
+        <button
+          onClick={loadWeeks}
+          className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-2xl font-bold text-gray-900">Your Weeks</h1>
-        <div className="flex items-center gap-3">
-          <Link
-            href="/recipes"
-            className="text-sm text-gray-600 hover:text-gray-900 font-medium"
-          >
-            My Recipes
-          </Link>
-          {dealsEnabled && (
-            <Link
-              href="/deals"
-              className="text-sm text-gray-600 hover:text-gray-900 font-medium"
-            >
-              Deals
-            </Link>
-          )}
-          <Link
-            href="/frequent-items"
-            className="text-sm text-gray-600 hover:text-gray-900 font-medium"
-          >
-            Frequent Items
-          </Link>
-          <Link
-            href="/staples"
-            className="text-sm text-gray-600 hover:text-gray-900 font-medium"
-          >
-            Staples
-          </Link>
-          <Link
-            href="/exclusions"
-            className="text-sm text-gray-600 hover:text-gray-900 font-medium"
-          >
-            Exclusions
-          </Link>
-          <Link
-            href="/create"
-            className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
-          >
-            + New Week
-          </Link>
-        </div>
       </div>
 
       {weeks.length === 0 ? (

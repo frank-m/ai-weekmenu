@@ -85,6 +85,8 @@ export async function POST(request: Request) {
 export async function DELETE() {
   try {
     await clearCart();
+    // Keep local "in cart" flags in sync with the now-empty Picnic cart
+    getDb().prepare("UPDATE picnic_products SET added_to_cart = 0").run();
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof PicnicTwoFactorRequiredError) {

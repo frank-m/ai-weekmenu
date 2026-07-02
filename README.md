@@ -19,7 +19,8 @@ Note: This app was fully vibecoded and is not meant to be ran in a production sc
 - **Frequent items** — save commonly purchased products for quick access outside of recipes, with live promo badges showing active Picnic deals
 - **Bundle selection** — ingredient rows and frequent items support a bundle picker to choose multi-pack variants (e.g. 6-pack vs single)
 - **Leftover tracking** — tell the AI what leftovers you have so it incorporates them into new recipes
-- **Recipe regeneration** — regenerate individual recipes without recreating the entire week
+- **Recipe regeneration** — regenerate individual recipes without recreating the entire week; previously rejected suggestions and recently cooked dishes are avoided for variety
+- **Connection status** — the navbar shows a live Picnic connection indicator; weeks with unmatched ingredients show a banner with a one-click "Retry matching" action
 - **Deals** *(experimental)* — discovers Picnic promotions via the product detail page "Meer met korting" section; caches on-sale products and injects them into the Gemini prompt so the AI prefers cheaper ingredients. Enable in Settings → Experimental Features.
 
 ## Getting Started
@@ -105,7 +106,7 @@ All recipes, ingredients, preferences, meal history, frequent items, shopping ca
 - Number of recipes and servings requested
 - Cuisine preferences (style, budget, healthy, portion size)
 - Leftover ingredient names and quantities
-- Existing recipe titles (to avoid duplicates)
+- Existing recipe titles (to avoid duplicates), recent weeks' recipe titles, and thumbs-down rated titles (for menu variety)
 - When Deals is enabled: names and promo labels of currently on-sale Picnic products (cached locally, injected into the recipe prompt)
 
 No personal data, credentials, or browsing history is sent.

@@ -9,6 +9,8 @@ export default function StaplesPage() {
   const [staples, setStaples] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   const fetchStaples = () => {
     fetch("/api/staples")
@@ -17,7 +19,10 @@ export default function StaplesPage() {
         setStaples(Array.isArray(data) ? data : []);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(() => {
+        setError("Could not load staples.");
+        setLoading(false);
+      });
   };
 
   useEffect(() => {
@@ -26,23 +31,40 @@ export default function StaplesPage() {
 
   const handleAdd = async () => {
     const name = newName.trim().toLowerCase();
-    if (!name) return;
-    await fetch("/api/staples", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
-    setNewName("");
-    fetchStaples();
+    if (!name || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch("/api/staples", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) {
+        setError("Failed to add staple.");
+      } else {
+        setNewName("");
+        fetchStaples();
+      }
+    } catch {
+      setError("Failed to add staple.");
+    }
+    setBusy(false);
   };
 
   const handleRemove = async (name: string) => {
-    await fetch("/api/staples", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
-    fetchStaples();
+    setError("");
+    try {
+      const res = await fetch("/api/staples", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) setError("Failed to remove staple.");
+      fetchStaples();
+    } catch {
+      setError("Failed to remove staple.");
+    }
   };
 
   if (loading) {
@@ -79,10 +101,16 @@ export default function StaplesPage() {
           placeholder="Add a staple ingredient..."
           className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
         />
-        <Button onClick={handleAdd} disabled={!newName.trim()}>
-          Add
+        <Button onClick={handleAdd} disabled={!newName.trim() || busy}>
+          {busy ? "Adding..." : "Add"}
         </Button>
       </div>
+
+      {error && (
+        <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg mb-4">
+          {error}
+        </p>
+      )}
 
       <div className="space-y-1">
         {staples.map((name) => (

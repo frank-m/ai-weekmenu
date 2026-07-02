@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getProductBundles } from "@/lib/picnic";
+import { getProductBundles, PicnicTwoFactorRequiredError } from "@/lib/picnic";
 
 export async function POST(request: Request) {
   try {
@@ -11,6 +11,9 @@ export async function POST(request: Request) {
     const bundles = await getProductBundles(body.product_id);
     return NextResponse.json({ bundles });
   } catch (error) {
+    if (error instanceof PicnicTwoFactorRequiredError) {
+      return NextResponse.json({ error: "picnic_2fa_required" }, { status: 401 });
+    }
     console.error("[bundles] Error fetching bundles:", error);
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

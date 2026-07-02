@@ -13,7 +13,15 @@ export async function POST(request: Request) {
 
     for (const item of body.items) {
       try {
-        await addToCart(item.product_id);
+        // Respect the stored per-recipe quantity, like the single-item route
+        let count = 1;
+        if (item.picnic_product_db_id) {
+          const row = db
+            .prepare("SELECT quantity FROM picnic_products WHERE id = ?")
+            .get(item.picnic_product_db_id) as { quantity: number } | undefined;
+          count = row?.quantity ?? 1;
+        }
+        await addToCart(item.product_id, count);
         if (item.picnic_product_db_id) {
           db.prepare(
             "UPDATE picnic_products SET added_to_cart = 1 WHERE id = ?"

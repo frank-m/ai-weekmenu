@@ -119,8 +119,10 @@ export async function POST() {
         }
       } catch (err) {
         if (err instanceof PicnicTwoFactorRequiredError) throw err;
+        // Transient failure (rate limit, network) — leave the promotion's
+        // state untouched; only a successful fetch with no matching promo
+        // proves it's actually inactive
         console.error(`[deals/refresh] Phase 2 failed for promo ${known.promotion_id}:`, err);
-        promoUpserts.set(known.promotion_id, { active: 0, last_seen_at: null });
       }
     }
 

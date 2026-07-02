@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type, Content, FunctionCall } from "@google/genai";
 import { getSetting, getDb } from "./db";
 import { GeneratedRecipe, WeekPreferences, LeftoverItem } from "./types";
-import { rawSearch, delay, MatchedProduct } from "./picnic";
+import { rawSearch, delay, MatchedProduct, PicnicTwoFactorRequiredError } from "./picnic";
 import { getStaples } from "./staples";
 import { getExclusions } from "./exclusions";
 import { getSeasonalProduce, SEASON_LABELS } from "./seasonal";
@@ -82,12 +82,50 @@ const recipeSchema = {
   },
 };
 
+export interface VarietyContext {
+  /** Titles from recent weeks — soft avoid, keeps new menus from repeating. */
+  recentTitles?: string[];
+  /** Titles the user rated thumbs-down — hard avoid. */
+  dislikedTitles?: string[];
+  /** Titles already rejected in this regenerate session — hard avoid. */
+  rejectedTitles?: string[];
+}
+
+/**
+ * Collects variety context from the DB: recipe titles from the most recent
+ * weeks and everything the user rated thumbs-down.
+ */
+export function getVarietyContext(excludeWeekId?: number): VarietyContext {
+  try {
+    const db = getDb();
+    const recentTitles = (
+      db
+        .prepare(
+          `SELECT DISTINCT r.title FROM recipes r
+           JOIN weeks w ON r.week_id = w.id
+           ${excludeWeekId ? "WHERE w.id != ?" : ""}
+           ORDER BY w.created_at DESC, r.id DESC LIMIT 40`
+        )
+        .all(...(excludeWeekId ? [excludeWeekId] : [])) as { title: string }[]
+    ).map((r) => r.title);
+    const dislikedTitles = (
+      db
+        .prepare("SELECT DISTINCT title FROM recipes WHERE rating = -1")
+        .all() as { title: string }[]
+    ).map((r) => r.title);
+    return { recentTitles, dislikedTitles };
+  } catch {
+    return {};
+  }
+}
+
 function buildPrompt(
   numRecipes: number,
   servings: number,
   preferences: WeekPreferences,
   existingTitles: string[] = [],
-  replacingTitle?: string
+  replacingTitle?: string,
+  variety?: VarietyContext
 ): string {
   const calorieMap: Record<string, number> = {
     light: 400,
@@ -149,6 +187,18 @@ function buildPrompt(
     prompt += `\nYou are replacing the recipe "${replacingTitle}". Generate something completely different — not a variation of this dish.\n`;
   }
 
+  if (variety?.rejectedTitles && variety.rejectedTitles.length > 0) {
+    prompt += `\nThe user already rejected these suggestions — do NOT generate these dishes or close variations of them: ${variety.rejectedTitles.join(", ")}\n`;
+  }
+
+  if (variety?.dislikedTitles && variety.dislikedTitles.length > 0) {
+    prompt += `\nThe user disliked these dishes — never generate them or anything very similar: ${variety.dislikedTitles.join(", ")}\n`;
+  }
+
+  if (variety?.recentTitles && variety.recentTitles.length > 0) {
+    prompt += `\nRecently cooked in previous weeks — avoid repeating these and aim for clearly different dishes, proteins, and cuisines to keep menus varied: ${variety.recentTitles.join(", ")}\n`;
+  }
+
   if (getSetting("deals_enabled") === "true") {
     const deals = getCurrentDeals();
     if (deals.length > 0) {
@@ -184,10 +234,11 @@ export async function generateRecipes(
   servings: number,
   preferences: WeekPreferences,
   existingTitles: string[] = [],
-  replacingTitle?: string
+  replacingTitle?: string,
+  variety?: VarietyContext
 ): Promise<GeneratedRecipe[]> {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
-  const prompt = buildPrompt(numRecipes, servings, preferences, existingTitles, replacingTitle);
+  const prompt = buildPrompt(numRecipes, servings, preferences, existingTitles, replacingTitle, variety);
 
   const response = await ai.models.generateContent({
     model: getModel(),
@@ -195,6 +246,9 @@ export async function generateRecipes(
     config: {
       responseMimeType: "application/json",
       responseSchema: recipeSchema,
+      // Sample well above the default so repeated runs with the same
+      // preferences don't converge on the same handful of dishes
+      temperature: 1.2,
     },
   });
 
@@ -313,6 +367,9 @@ Format:
           },
         });
       } catch (err) {
+        // Auth problems affect every search — abort instead of letting the
+        // model "finish" with all-null matches that look like a success
+        if (err instanceof PicnicTwoFactorRequiredError) throw err;
         functionResponses.push({
           functionResponse: {
             name: call.name!,

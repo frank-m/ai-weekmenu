@@ -48,20 +48,27 @@ export default function FrequentItemsPage() {
     loadItems();
   }, [loadItems]);
 
+  // Key on the joined id list, not the array identity — quantity updates
+  // reload items and would otherwise refire this expensive PDP-backed lookup
+  // on every +/- click (rate-limit risk)
+  const promoKey = items.map((i) => i.picnic_id).join(",");
   useEffect(() => {
-    if (items.length === 0) return;
-    const ids = items.map((i) => i.picnic_id);
+    if (!promoKey) return;
+    let stale = false;
     fetch("/api/picnic/promos", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ product_ids: ids }),
+      body: JSON.stringify({ product_ids: promoKey.split(",") }),
     })
       .then((r) => r.json())
       .then((data) => {
-        if (data.promos) setPromos(data.promos);
+        if (!stale && data.promos) setPromos(data.promos);
       })
       .catch(() => {});
-  }, [items]);
+    return () => {
+      stale = true;
+    };
+  }, [promoKey]);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -113,6 +120,9 @@ export default function FrequentItemsPage() {
 
   const handleUpdateQuantity = async (item: FrequentItem, delta: number) => {
     const newQty = item.quantity + delta;
+    if (newQty < 1 && !confirm(`Remove "${item.name}" from your frequent items?`)) {
+      return;
+    }
     setUpdatingId(item.id);
     try {
       if (newQty < 1) {

@@ -22,11 +22,18 @@ export default function IngredientRow({
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const [showBundleModal, setShowBundleModal] = useState(false);
+  const [rowError, setRowError] = useState("");
   const product = ingredient.picnic_product;
+
+  const flashError = (message: string) => {
+    setRowError(message);
+    setTimeout(() => setRowError(""), 4000);
+  };
 
   const handleAddToCart = async () => {
     if (!product) return;
     setAdding(true);
+    setRowError("");
     try {
       const res = await fetch("/api/picnic/cart", {
         method: "POST",
@@ -40,13 +47,15 @@ export default function IngredientRow({
         const data = await res.json().catch(() => ({}));
         if (data.error === "picnic_2fa_required") {
           window.dispatchEvent(new CustomEvent("picnic:2fa-required"));
+        } else {
+          flashError("Failed — try again");
         }
         setAdding(false);
         return;
       }
       onCartUpdate();
     } catch {
-      // ignore
+      flashError("Failed — try again");
     }
     setAdding(false);
   };
@@ -69,19 +78,22 @@ export default function IngredientRow({
         const data = await res.json().catch(() => ({}));
         if (data.error === "picnic_2fa_required") {
           window.dispatchEvent(new CustomEvent("picnic:2fa-required"));
+        } else {
+          flashError("Could not change bundle");
         }
         return;
       }
       setShowBundleModal(false);
       onCartUpdate();
     } catch {
-      // ignore
+      flashError("Could not change bundle");
     }
   };
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     setSearching(true);
+    setRowError("");
     try {
       const res = await fetch("/api/picnic/search", {
         method: "POST",
@@ -95,7 +107,15 @@ export default function IngredientRow({
         const data = await res.json().catch(() => ({}));
         if (data.error === "picnic_2fa_required") {
           window.dispatchEvent(new CustomEvent("picnic:2fa-required"));
+        } else {
+          flashError("Search failed — try again");
         }
+        setSearching(false);
+        return;
+      }
+      const data = await res.json();
+      if (!data.product) {
+        flashError("No products found");
         setSearching(false);
         return;
       }
@@ -103,7 +123,7 @@ export default function IngredientRow({
       setShowSearch(false);
       setSearchQuery("");
     } catch {
-      // ignore
+      flashError("Search failed — try again");
     }
     setSearching(false);
   };
@@ -186,15 +206,25 @@ export default function IngredientRow({
         </div>
       )}
 
+      {rowError && (
+        <div className="text-xs text-red-600 sm:absolute sm:right-3 sm:-bottom-1">
+          {rowError}
+        </div>
+      )}
+
       {/* Inline search */}
       {showSearch && (
-        <div className="absolute right-0 top-full mt-1 bg-white border rounded-lg shadow-lg p-2 flex gap-2 z-10">
+        <div className="absolute right-0 top-full mt-1 bg-white border rounded-lg shadow-lg p-2 flex gap-2 z-20">
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSearch();
+              if (e.key === "Escape") setShowSearch(false);
+            }}
             placeholder="Search Picnic..."
+            autoFocus
             className="px-2 py-1 border rounded text-sm w-40"
           />
           <Button size="sm" onClick={handleSearch} disabled={searching}>

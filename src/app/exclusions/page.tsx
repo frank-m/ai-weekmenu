@@ -9,6 +9,8 @@ export default function ExclusionsPage() {
   const [exclusions, setExclusions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   const fetchExclusions = () => {
     fetch("/api/exclusions")
@@ -17,7 +19,10 @@ export default function ExclusionsPage() {
         setExclusions(Array.isArray(data) ? data : []);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(() => {
+        setError("Could not load exclusions.");
+        setLoading(false);
+      });
   };
 
   useEffect(() => {
@@ -26,23 +31,40 @@ export default function ExclusionsPage() {
 
   const handleAdd = async () => {
     const name = newName.trim().toLowerCase();
-    if (!name) return;
-    await fetch("/api/exclusions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
-    setNewName("");
-    fetchExclusions();
+    if (!name || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch("/api/exclusions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) {
+        setError("Failed to add exclusion.");
+      } else {
+        setNewName("");
+        fetchExclusions();
+      }
+    } catch {
+      setError("Failed to add exclusion.");
+    }
+    setBusy(false);
   };
 
   const handleRemove = async (name: string) => {
-    await fetch("/api/exclusions", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
-    fetchExclusions();
+    setError("");
+    try {
+      const res = await fetch("/api/exclusions", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) setError("Failed to remove exclusion.");
+      fetchExclusions();
+    } catch {
+      setError("Failed to remove exclusion.");
+    }
   };
 
   if (loading) {
@@ -78,10 +100,16 @@ export default function ExclusionsPage() {
           placeholder="Add an exclusion..."
           className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
         />
-        <Button onClick={handleAdd} disabled={!newName.trim()}>
-          Add
+        <Button onClick={handleAdd} disabled={!newName.trim() || busy}>
+          {busy ? "Adding..." : "Add"}
         </Button>
       </div>
+
+      {error && (
+        <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg mb-4">
+          {error}
+        </p>
+      )}
 
       <div className="space-y-1">
         {exclusions.map((name) => (

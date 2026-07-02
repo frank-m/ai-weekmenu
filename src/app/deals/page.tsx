@@ -40,8 +40,10 @@ export default function DealsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshResult, setRefreshResult] = useState<string | null>(null);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const [addingId, setAddingId] = useState<string | null>(null);
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
+  const [addError, setAddError] = useState("");
 
   const loadDeals = useCallback(async () => {
     try {
@@ -68,11 +70,18 @@ export default function DealsPage() {
   const handleRefresh = async () => {
     setRefreshing(true);
     setRefreshResult(null);
+    setRefreshFailed(false);
     try {
       const res = await fetch("/api/picnic/deals/refresh", { method: "POST" });
       const data = await res.json();
-      if (data.error) {
-        setRefreshResult(`Error: ${data.error}`);
+      if (!res.ok || data.error) {
+        setRefreshFailed(true);
+        if (data.error === "picnic_2fa_required") {
+          window.dispatchEvent(new CustomEvent("picnic:2fa-required"));
+          setRefreshResult("Picnic needs two-factor verification — Settings will open.");
+        } else {
+          setRefreshResult(`Error: ${data.error || "refresh failed"}`);
+        }
       } else {
         const msg = `Found ${data.items_found} deals across ${data.promotions_checked} promotion groups (${data.calls_made} API calls).`;
         setRefreshResult(
@@ -83,6 +92,7 @@ export default function DealsPage() {
         await loadDeals();
       }
     } catch {
+      setRefreshFailed(true);
       setRefreshResult("Refresh failed. Check your Picnic connection.");
     }
     setRefreshing(false);
@@ -90,15 +100,26 @@ export default function DealsPage() {
 
   const handleAddToCart = async (item: DealItem) => {
     setAddingId(item.picnic_id);
+    setAddError("");
     try {
-      await fetch("/api/picnic/cart", {
+      const res = await fetch("/api/picnic/cart", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ product_id: item.picnic_id }),
       });
-      setAddedIds((prev) => new Set(prev).add(item.picnic_id));
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.error === "picnic_2fa_required") {
+          window.dispatchEvent(new CustomEvent("picnic:2fa-required"));
+          setAddError("Picnic needs two-factor verification.");
+        } else {
+          setAddError(`Could not add "${item.name}" to the cart.`);
+        }
+      } else {
+        setAddedIds((prev) => new Set(prev).add(item.picnic_id));
+      }
     } catch {
-      // ignore
+      setAddError(`Could not add "${item.name}" to the cart.`);
     }
     setAddingId(null);
   };
@@ -173,8 +194,20 @@ export default function DealsPage() {
 
       {/* Refresh result message */}
       {refreshResult && (
-        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
+        <div
+          className={`mb-4 p-3 rounded-lg text-sm border ${
+            refreshFailed
+              ? "bg-red-50 border-red-200 text-red-800"
+              : "bg-green-50 border-green-200 text-green-800"
+          }`}
+        >
           {refreshResult}
+        </div>
+      )}
+
+      {addError && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
+          {addError}
         </div>
       )}
 
