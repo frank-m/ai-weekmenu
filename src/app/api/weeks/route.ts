@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import {
   generateRecipes,
-  matchIngredientsToProducts,
+  matchIngredientsWithFallback,
   getVarietyContext,
 } from "@/lib/gemini";
-import { searchProduct, delay, PicnicTwoFactorRequiredError } from "@/lib/picnic";
+import { PicnicTwoFactorRequiredError } from "@/lib/picnic";
 import { CreateWeekRequest, GeneratedRecipe, Recipe, Week } from "@/lib/types";
 import { getStaples } from "@/lib/staples";
 
@@ -178,24 +178,8 @@ export async function POST(request: Request) {
         ([name, quantity]) => ({ name, quantity })
       );
 
-      let productMap: Record<string, { picnic_id: string; name: string; image_id: string; price: number; unit_quantity: string; quantity: number } | null> = {};
-      try {
-        productMap = await matchIngredientsToProducts(uniqueIngredients);
-        console.log("[weeks] LLM matched products:", Object.keys(productMap).length);
-      } catch (err) {
-        if (err instanceof PicnicTwoFactorRequiredError) throw err;
-        console.error("[weeks] LLM matching failed, falling back to direct search:", err);
-        // Graceful fallback: search directly for each unique ingredient
-        for (const { name } of uniqueIngredients) {
-          await delay(500);
-          try {
-            productMap[name] = await searchProduct(name);
-          } catch (err) {
-            if (err instanceof PicnicTwoFactorRequiredError) throw err;
-            productMap[name] = null;
-          }
-        }
-      }
+      const productMap = await matchIngredientsWithFallback(uniqueIngredients);
+      console.log("[weeks] matched products:", Object.keys(productMap).length);
 
       for (const ing of allIngredients) {
         const normalizedName = ing.name.toLowerCase().trim();

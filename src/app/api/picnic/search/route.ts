@@ -50,7 +50,11 @@ export async function POST(request: Request) {
       match = results[body.query] || null;
       console.log("[api/picnic/search] LLM match result:", match ? match.name : "null");
     } catch (err) {
+      if (err instanceof PicnicTwoFactorRequiredError) throw err;
       console.error("[api/picnic/search] LLM matching failed, falling back to direct search:", err);
+    }
+    // The LLM matcher can "succeed" but return null — a plain search often finds it.
+    if (!match) {
       match = await searchProduct(body.query);
     }
 

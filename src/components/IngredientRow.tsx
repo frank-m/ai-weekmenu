@@ -30,6 +30,16 @@ export default function IngredientRow({
     setTimeout(() => setRowError(""), 4000);
   };
 
+  const toggleSearch = () => {
+    if (showSearch) {
+      setShowSearch(false);
+      return;
+    }
+    // Prefill with the ingredient name so the user can search (or tweak) it directly
+    setSearchQuery(ingredient.name);
+    setShowSearch(true);
+  };
+
   const handleAddToCart = async () => {
     if (!product) return;
     setAdding(true);
@@ -182,7 +192,7 @@ export default function IngredientRow({
             Bundles
           </button>
           <button
-            onClick={() => setShowSearch(!showSearch)}
+            onClick={toggleSearch}
             className="text-gray-400 hover:text-gray-600 p-1"
             title="Search different product"
           >
@@ -195,7 +205,7 @@ export default function IngredientRow({
         <div className="flex items-center gap-2 w-full sm:w-auto sm:shrink-0">
           <span className="text-xs text-gray-400">No match</span>
           <button
-            onClick={() => setShowSearch(!showSearch)}
+            onClick={toggleSearch}
             className="text-gray-400 hover:text-gray-600 p-1"
             title="Search product"
           >
@@ -223,6 +233,7 @@ export default function IngredientRow({
               if (e.key === "Enter") handleSearch();
               if (e.key === "Escape") setShowSearch(false);
             }}
+            onFocus={(e) => e.target.select()}
             placeholder="Search Picnic..."
             autoFocus
             className="px-2 py-1 border rounded text-sm w-40"
