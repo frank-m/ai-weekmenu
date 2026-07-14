@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type, Content, FunctionCall } from "@google/genai";
 import { getSetting, getDb } from "./db";
 import { GeneratedRecipe, WeekPreferences, LeftoverItem } from "./types";
-import { rawSearch, delay, MatchedProduct, PicnicTwoFactorRequiredError } from "./picnic";
+import { rawSearch, searchProduct, delay, MatchedProduct, PicnicTwoFactorRequiredError } from "./picnic";
 import { getStaples } from "./staples";
 import { getExclusions } from "./exclusions";
 import { getSeasonalProduce, SEASON_LABELS } from "./seasonal";
@@ -383,6 +383,40 @@ Format:
   }
 
   throw new Error("matchIngredientsToProducts exceeded max iterations");
+}
+
+/**
+ * Match ingredients to Picnic products, then direct-search any that the LLM
+ * matcher left unmatched. The agentic matcher often "succeeds" but returns null
+ * for some ingredients (over-simplified query, gave up early, or a JSON key that
+ * doesn't exactly match the ingredient name) — a plain search on the ingredient
+ * name usually finds those, which is exactly what the manual search box does.
+ */
+export async function matchIngredientsWithFallback(
+  ingredients: { name: string; quantity: string }[]
+): Promise<Record<string, MatchedProduct | null>> {
+  let productMap: Record<string, MatchedProduct | null> = {};
+  try {
+    productMap = await matchIngredientsToProducts(ingredients);
+  } catch (err) {
+    // Auth problems affect every search — surface, don't paper over.
+    if (err instanceof PicnicTwoFactorRequiredError) throw err;
+    console.error("[gemini] LLM matching failed, falling back to direct search:", err);
+    productMap = {};
+  }
+
+  for (const { name } of ingredients) {
+    if (productMap[name]) continue;
+    await delay(500);
+    try {
+      productMap[name] = await searchProduct(name);
+    } catch (searchErr) {
+      if (searchErr instanceof PicnicTwoFactorRequiredError) throw searchErr;
+      productMap[name] = null;
+    }
+  }
+
+  return productMap;
 }
 
 function parseMatchResults(

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { generateRecipes, matchIngredientsToProducts, getVarietyContext } from "@/lib/gemini";
-import { searchProduct, delay, PicnicTwoFactorRequiredError } from "@/lib/picnic";
+import { generateRecipes, matchIngredientsWithFallback, getVarietyContext } from "@/lib/gemini";
+import { PicnicTwoFactorRequiredError } from "@/lib/picnic";
 import { Recipe, Week, WeekPreferences, LeftoverItem } from "@/lib/types";
 
 export async function POST(
@@ -148,20 +148,7 @@ export async function POST(
     let matchingStatus: "ok" | "2fa_required" | "failed" = "ok";
     let productMap: Record<string, { picnic_id: string; name: string; image_id: string; price: number; unit_quantity: string; quantity?: number } | null> = {};
     try {
-      try {
-        productMap = await matchIngredientsToProducts(uniqueIngredients);
-      } catch (err) {
-        if (err instanceof PicnicTwoFactorRequiredError) throw err;
-        for (const { name } of uniqueIngredients) {
-          await delay(500);
-          try {
-            productMap[name] = await searchProduct(name);
-          } catch (searchErr) {
-            if (searchErr instanceof PicnicTwoFactorRequiredError) throw searchErr;
-            productMap[name] = null;
-          }
-        }
-      }
+      productMap = await matchIngredientsWithFallback(uniqueIngredients);
     } catch (err) {
       matchingStatus = err instanceof PicnicTwoFactorRequiredError ? "2fa_required" : "failed";
       console.error("[regenerate] Picnic matching skipped:", err);

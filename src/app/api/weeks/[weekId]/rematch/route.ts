@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { matchIngredientsToProducts } from "@/lib/gemini";
-import { searchProduct, delay, PicnicTwoFactorRequiredError } from "@/lib/picnic";
+import { matchIngredientsWithFallback } from "@/lib/gemini";
+import { PicnicTwoFactorRequiredError } from "@/lib/picnic";
 
 /**
  * Retries Picnic matching for all ingredients of a week that have no matched
@@ -47,25 +47,7 @@ export async function POST(
       ([name, quantity]) => ({ name, quantity })
     );
 
-    let productMap: Record<
-      string,
-      { picnic_id: string; name: string; image_id: string; price: number; unit_quantity: string; quantity: number } | null
-    > = {};
-    try {
-      productMap = await matchIngredientsToProducts(uniqueIngredients);
-    } catch (err) {
-      if (err instanceof PicnicTwoFactorRequiredError) throw err;
-      console.error("[rematch] LLM matching failed, falling back to direct search:", err);
-      for (const { name } of uniqueIngredients) {
-        await delay(500);
-        try {
-          productMap[name] = await searchProduct(name);
-        } catch (searchErr) {
-          if (searchErr instanceof PicnicTwoFactorRequiredError) throw searchErr;
-          productMap[name] = null;
-        }
-      }
-    }
+    const productMap = await matchIngredientsWithFallback(uniqueIngredients);
 
     let matchedCount = 0;
     for (const ing of unmatched) {
