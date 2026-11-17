@@ -52,21 +52,59 @@ export interface GeminiCallOptions {
   report?: ProgressReporter;
 }
 
-/** Gemini is overloaded or rate limited — worth retrying / another model. */
-function isOverloaded(err: unknown): boolean {
-  if (err instanceof ApiError && [429, 500, 503, 504].includes(err.status)) return true;
-  return (
-    err instanceof Error &&
-    /UNAVAILABLE|RESOURCE_EXHAUSTED|overloaded|high demand/i.test(err.message)
-  );
+/** Why a call is worth retrying, or null when it isn't (bad key, bad request…). */
+function retryReason(err: unknown): "busy" | "timed out" | null {
+  if (err instanceof Error && (err.name === "AbortError" || /aborted|timed? ?out|DEADLINE_EXCEEDED/i.test(err.message))) {
+    return "timed out";
+  }
+  if (err instanceof ApiError && [429, 500, 502, 503, 504].includes(err.status)) return "busy";
+  if (err instanceof Error && /UNAVAILABLE|RESOURCE_EXHAUSTED|overloaded|high demand/i.test(err.message)) {
+    return "busy";
+  }
+  return null;
+}
+
+/** Per-call retry policy: request timeouts grow with each attempt. */
+export interface RetryPolicy {
+  /** Timeout per attempt on the configured model, in ms; its length is the attempt count */
+  primaryTimeouts: number[];
+  /** Timeouts per attempt on each fallback model */
+  fallbackTimeouts: number[];
+}
+
+// Recipe generation returns a lot of JSON (and thinks first), so it gets more time
+export const RECIPE_RETRY: RetryPolicy = {
+  primaryTimeouts: [90_000, 120_000, 150_000],
+  fallbackTimeouts: [90_000, 120_000],
+};
+// One step of the matching tool loop is small
+export const MATCHING_RETRY: RetryPolicy = {
+  primaryTimeouts: [30_000, 45_000, 60_000],
+  fallbackTimeouts: [30_000, 45_000],
+};
+
+const BACKOFF_BASE_MS = 1000;
+
+/** Exponential backoff with jitter: ~1s, ~2s, ~4s… (±50%) so retries don't stampede. */
+function backoffMs(retryNumber: number): number {
+  const base = BACKOFF_BASE_MS * 2 ** (retryNumber - 1);
+  return Math.round(base * (0.5 + Math.random()));
 }
 
 /**
- * Runs Gemini calls against a model chain: the configured model first, then the
- * fallbacks. On an overload error it retries the configured model once after a
- * short pause, then moves down the chain — and stays on the model that worked,
- * so a multi-call loop (matching) doesn't keep hitting the busy one.
+ * Runs Gemini calls the way Google recommends for 503 "high demand" errors:
+ * retry with exponential backoff and request timeouts that start short and grow.
+ * The configured model gets the most attempts; after that it walks the fallback
+ * chain and stays on the model that worked, so a multi-call loop (matching)
+ * doesn't keep hitting the busy one. Every step is reported to the loading
+ * indicator. (The SDK's own retryOptions retries silently and replaces Gemini's
+ * error message with a generic one, so we don't use it.)
  */
+/** "Gemini 3.8 Flash is busy" / "Gemini 3.8 Flash timed out" */
+function describeFailure(model: string, why: "busy" | "timed out"): string {
+  return why === "busy" ? `${modelLabel(model)} is busy` : `${modelLabel(model)} timed out`;
+}
+
 export class ModelRunner {
   private index = 0;
   private readonly models: string[];
@@ -74,7 +112,8 @@ export class ModelRunner {
   constructor(
     primary: string,
     fallbacks: string[],
-    private readonly report: ProgressReporter
+    private readonly report: ProgressReporter,
+    private readonly policy: RetryPolicy
   ) {
     this.models = [primary, ...fallbacks.filter((m) => m !== primary)];
   }
@@ -83,32 +122,39 @@ export class ModelRunner {
     return this.models[this.index];
   }
 
-  async run<T>(fn: (model: string) => Promise<T>): Promise<T> {
-    // Only the configured model gets a same-model retry; fallbacks are tried once
-    let retried = this.index > 0;
+  async run<T>(fn: (model: string, timeoutMs: number) => Promise<T>): Promise<T> {
     for (;;) {
       const model = this.models[this.index];
-      try {
-        return await fn(model);
-      } catch (err) {
-        if (!isOverloaded(err)) throw err;
-        console.warn(`[gemini] ${model} unavailable:`, err instanceof Error ? err.message : err);
-        if (!retried) {
-          retried = true;
-          this.report(`${modelLabel(model)} is busy, retrying…`);
-          await delay(2000);
-          continue;
-        }
-        const next = this.models[this.index + 1];
-        if (!next) {
-          throw new Error(
-            "All Gemini models are busy right now. Spikes in demand are usually temporary, so please try again in a few minutes."
+      const timeouts = this.index === 0 ? this.policy.primaryTimeouts : this.policy.fallbackTimeouts;
+      let reason: "busy" | "timed out" = "busy";
+      for (let attempt = 1; attempt <= timeouts.length; attempt++) {
+        try {
+          return await fn(model, timeouts[attempt - 1]);
+        } catch (err) {
+          const why = retryReason(err);
+          if (!why) throw err;
+          reason = why;
+          console.warn(
+            `[gemini] ${model} ${why} (attempt ${attempt}/${timeouts.length}):`,
+            err instanceof Error ? err.message : err
           );
+          if (attempt < timeouts.length) {
+            const wait = backoffMs(attempt);
+            this.report(
+              `${describeFailure(model, why)}, retrying in ${Math.max(1, Math.round(wait / 1000))}s (attempt ${attempt + 1} of ${timeouts.length})…`
+            );
+            await delay(wait);
+          }
         }
-        this.report(`${modelLabel(model)} is busy, switching to ${modelLabel(next)}…`);
-        this.index++;
-        retried = true;
       }
+      const next = this.models[this.index + 1];
+      if (!next) {
+        throw new Error(
+          "All Gemini models are busy or not responding right now. Spikes in demand are usually temporary, so please try again in a few minutes."
+        );
+      }
+      this.report(`${describeFailure(model, reason)}, switching to ${modelLabel(next)}…`);
+      this.index++;
     }
   }
 }
@@ -328,13 +374,14 @@ export async function generateRecipes(
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const prompt = buildPrompt(numRecipes, servings, preferences, existingTitles, replacingTitle, variety);
 
-  const runner = new ModelRunner(getModel(), RECIPE_FALLBACK_CHAIN, report);
+  const runner = new ModelRunner(getModel(), RECIPE_FALLBACK_CHAIN, report, RECIPE_RETRY);
   report(numRecipes === 1 ? "Generating a new recipe…" : `Generating ${numRecipes} recipes…`);
-  const response = await runner.run((model) =>
+  const response = await runner.run((model, timeout) =>
     ai.models.generateContent({
       model,
       contents: prompt,
       config: {
+        httpOptions: { timeout },
         responseMimeType: "application/json",
         responseSchema: recipeSchema,
         // Temperature left at the Gemini 3 default (1.0) — Google advises against
@@ -377,7 +424,7 @@ export async function matchIngredientsToProducts(
   { report = () => {} }: GeminiCallOptions = {}
 ): Promise<Record<string, MatchedProduct | null>> {
   if (ingredients.length === 0) return {};
-  const runner = new ModelRunner(getMatchingModel(), MATCHING_FALLBACK_CHAIN, report);
+  const runner = new ModelRunner(getMatchingModel(), MATCHING_FALLBACK_CHAIN, report, MATCHING_RETRY);
   report(
     ingredients.length === 1
       ? "Finding a matching Picnic product…"
@@ -418,11 +465,12 @@ Format:
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     console.log(`[gemini] matchIngredientsToProducts iteration ${i + 1}`);
 
-    const response = await runner.run((model) =>
+    const response = await runner.run((model, timeout) =>
       ai.models.generateContent({
         model,
         contents: history,
         config: {
+          httpOptions: { timeout },
           tools: [searchPicnicTool],
           // Thinking tokens are billed as output; matching needs little reasoning
           thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
