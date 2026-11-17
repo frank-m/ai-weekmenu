@@ -25,10 +25,13 @@ function picnicStatus(err: unknown): number | null {
  * which then surfaces the 2FA flow if Picnic requires it.
  */
 function isSessionError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  // Match on the message as well as the status: the status Picnic uses for
+  // this has varied, and the message is what identifies it
+  if (/not authenticated|unauthori[sz]ed|invalid (auth|token|session)/i.test(err.message)) return true;
   if (!PicnicClient.isPicnicApiError(err)) return false;
   if (err.status === 401) return true;
-  if (err.status !== 403) return false;
-  return /auth/i.test(`${err.code ?? ""} ${err.message}`);
+  return err.status === 403 && /auth/i.test(err.code ?? "");
 }
 
 function describePicnicError(err: unknown): string {
@@ -135,6 +138,7 @@ async function withAuthRetry<T>(fn: (picnic: Client) => Promise<T>): Promise<T> 
   try {
     return await fn(picnic);
   } catch (err: unknown) {
+    console.warn("[picnic] call failed:", describePicnicError(err));
     if (isSessionError(err)) {
       console.warn("[picnic] session rejected — resetting and logging in again:", describePicnicError(err));
       resetPicnicClient();
@@ -165,6 +169,7 @@ export async function checkPicnicConnection(): Promise<PicnicConnectionState> {
     if (err instanceof PicnicTwoFactorRequiredError) {
       return { ...getPicnicAuthState() };
     }
+    console.error("[picnic] connection check failed:", describePicnicError(err));
     return {
       ...getPicnicAuthState(),
       authenticated: false,
