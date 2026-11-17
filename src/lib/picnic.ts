@@ -17,6 +17,25 @@ function picnicStatus(err: unknown): number | null {
   return null;
 }
 
+/**
+ * Whether Picnic rejected the session itself (expired key, or 2FA not completed
+ * for this key) rather than the request. Picnic answers 401 for an expired key
+ * but 403 "User is not authenticated" for a key that lacks 2FA verification —
+ * while plain 403s are rate limiting. Both session cases need a fresh login,
+ * which then surfaces the 2FA flow if Picnic requires it.
+ */
+function isSessionError(err: unknown): boolean {
+  if (!PicnicClient.isPicnicApiError(err)) return false;
+  if (err.status === 401) return true;
+  if (err.status !== 403) return false;
+  return /auth/i.test(`${err.code ?? ""} ${err.message}`);
+}
+
+function describePicnicError(err: unknown): string {
+  if (!PicnicClient.isPicnicApiError(err)) return err instanceof Error ? err.message : String(err);
+  return `${err.status} code=${err.code ?? "-"} message=${err.message} body=${err.body.slice(0, 300)}`;
+}
+
 export class PicnicTwoFactorRequiredError extends Error {
   constructor() {
     super("Picnic two-factor authentication required. Go to Settings → Picnic to verify.");
@@ -116,8 +135,8 @@ async function withAuthRetry<T>(fn: (picnic: Client) => Promise<T>): Promise<T> 
   try {
     return await fn(picnic);
   } catch (err: unknown) {
-    if (picnicStatus(err) === 401) {
-      console.warn("[picnic] 401 — resetting session and retrying once");
+    if (isSessionError(err)) {
+      console.warn("[picnic] session rejected — resetting and logging in again:", describePicnicError(err));
       resetPicnicClient();
       const retryClient = await getPicnicClient();
       return fn(retryClient);
@@ -304,9 +323,10 @@ async function fetchSearch(query: string): Promise<ProductTile[]> {
   try {
     return await withAuthRetry(run);
   } catch (err: unknown) {
-    // 403 = rate limit → wait 5s and retry once
-    if (picnicStatus(err) === 403) {
-      console.warn("[picnic] 403 rate limit, waiting 5s before retry...");
+    // 403 = rate limit → wait 5s and retry once (session 403s were already
+    // handled by withAuthRetry)
+    if (picnicStatus(err) === 403 && !isSessionError(err)) {
+      console.warn("[picnic] 403 rate limit, waiting 5s before retry...", describePicnicError(err));
       await delay(5000);
       return run(await getPicnicClient());
     }
