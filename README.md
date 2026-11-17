@@ -19,6 +19,7 @@ Note: This app was fully vibecoded and is not meant to be ran in a production sc
 - **Portion sizes** — set a default calorie target in settings and choose per-week portion sizes (light, normal, large) in the creation wizard
 - **Frequent items** — save commonly purchased products for quick access outside of recipes, with live promo badges showing active Picnic deals
 - **Bundle selection** — ingredient rows and frequent items support a bundle picker for Picnic's volume prices (e.g. "vanaf 4 €2,79 each"); picking one sets the quantity
+- **Cheapest products** — the AI matcher picks the cheapest suitable product per kg / litre / piece (house brands included), and a "Cheaper" link on each ingredient shows similar products that cost less per unit, with one-click swap
 - **Leftover tracking** — tell the AI what leftovers you have so it incorporates them into new recipes
 - **Recipe regeneration** — regenerate individual recipes without recreating the entire week; previously rejected suggestions and recently cooked dishes are avoided for variety
 - **Connection status** — the navbar shows a live Picnic connection indicator; weeks with unmatched ingredients show a banner with a one-click "Retry matching" action

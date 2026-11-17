@@ -4,6 +4,8 @@ import { useState } from "react";
 import { Ingredient, BundleOption } from "@/lib/types";
 import Button from "./ui/Button";
 import BundleModal from "./BundleModal";
+import CheaperModal from "./CheaperModal";
+import type { CheaperOption } from "@/lib/picnic";
 
 interface IngredientRowProps {
   ingredient: Ingredient;
@@ -22,6 +24,7 @@ export default function IngredientRow({
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const [showBundleModal, setShowBundleModal] = useState(false);
+  const [showCheaperModal, setShowCheaperModal] = useState(false);
   const [rowError, setRowError] = useState("");
   const product = ingredient.picnic_product;
 
@@ -99,6 +102,37 @@ export default function IngredientRow({
       onCartUpdate();
     } catch {
       flashError("Could not change bundle");
+    }
+  };
+
+  const handleCheaperSelect = async (option: CheaperOption) => {
+    try {
+      // Plain product swap: the stored quantity is kept
+      const res = await fetch("/api/picnic/search", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ingredient_id: ingredient.id,
+          picnic_id: option.picnic_id,
+          name: option.name,
+          image_id: option.image_id,
+          price: option.price,
+          unit_quantity: option.unit_quantity,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.error === "picnic_2fa_required") {
+          window.dispatchEvent(new CustomEvent("picnic:2fa-required"));
+        } else {
+          flashError("Could not swap product");
+        }
+        return;
+      }
+      setShowCheaperModal(false);
+      onCartUpdate();
+    } catch {
+      flashError("Could not swap product");
     }
   };
 
@@ -209,6 +243,15 @@ export default function IngredientRow({
           >
             Bundles
           </button>
+          {!product.added_to_cart && (
+            <button
+              onClick={() => setShowCheaperModal(true)}
+              className="text-xs text-green-600 hover:text-green-800 px-1"
+              title="Similar products that are cheaper per kg / litre / piece"
+            >
+              Cheaper
+            </button>
+          )}
           <button
             onClick={toggleSearch}
             className="text-gray-400 hover:text-gray-600 p-1"
@@ -260,6 +303,15 @@ export default function IngredientRow({
             {searching ? "..." : "Go"}
           </Button>
         </div>
+      )}
+
+      {showCheaperModal && product && (
+        <CheaperModal
+          productId={product.picnic_id}
+          productName={product.name}
+          onClose={() => setShowCheaperModal(false)}
+          onSelect={handleCheaperSelect}
+        />
       )}
 
       {showBundleModal && product && (

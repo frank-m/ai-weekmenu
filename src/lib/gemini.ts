@@ -416,7 +416,7 @@ const searchPicnicTool = {
     {
       name: "search_picnic",
       description:
-        "Search the Picnic grocery delivery catalog. Returns up to 5 matching products with id, name, price (cents), image_id, and unit_quantity.",
+        "Search the Picnic grocery delivery catalog. Returns up to 10 matching products with id, name, price (cents, per package), image_id, unit_quantity, unit_price (price per kg / l / stuk, for comparing sizes and brands) and promo_label (active promotion, if any).",
       parameters: {
         type: Type.OBJECT,
         properties: {
@@ -459,8 +459,8 @@ For each ingredient below, use the search_picnic tool to find the best matching 
 - If no good match is found, try a different/simpler query
 - You may search for multiple ingredients in parallel
 - When multiple results differ only by package size, prefer the product whose unit_quantity most closely matches the needed quantity shown in parentheses
-- Results are listed roughly in order of relevance; products the household bought before come first, so prefer those when they fit
-- Among equally suitable products, prefer the lower unit_price (price per kg/l/piece) or one with a promo_label
+- Results are listed roughly in order of relevance; products the household bought before come first — use that only as a tie-breaker between similarly priced options
+- Pick the CHEAPEST suitable product: among the results that are the right ingredient in a usable form, choose the one with the lowest unit_price (house brands like "Picnic" are fine). Products on promotion (promo_label) count at their discounted value. Only choose a more expensive one when the cheaper ones don't fit the recipe (wrong product, wrong form, or a package far larger than needed)
 
 Ingredients to match:
 ${ingredients.map((ing, i) => `${i + 1}. ${ing.name}${ing.quantity ? ` (need ${ing.quantity})` : ""}`).join("\n")}
@@ -531,7 +531,8 @@ Format:
 
       await delay(500);
       try {
-        const results = await rawSearch(query);
+        // 10 results so cheaper house brands are in view, not just the top hits
+        const results = await rawSearch(query, 10);
         for (const r of results) if (r.promo_label) promoById.set(r.id, r.promo_label);
         functionResponses.push({
           functionResponse: {

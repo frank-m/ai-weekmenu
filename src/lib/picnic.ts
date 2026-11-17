@@ -5,6 +5,7 @@ import type { BundleOption, PromoProduct } from "./types";
 type Client = InstanceType<typeof PicnicClient>;
 type ProductTile = PicnicClient.Types.catalog.ProductTile;
 type CountryCode = PicnicClient.Types.common.CountryCode;
+type ComparisonPrice = PicnicClient.Types.catalog.ComparisonPrice;
 
 let client: Client | null = null;
 let authenticated = false;
@@ -283,7 +284,7 @@ export interface RawSearchResult {
   price: number;
   image_id: string;
   unit_quantity: string;
-  /** Price per kg / litre / piece as Picnic shows it, e.g. "€1,26/l" — helps pick package sizes */
+  /** Price per kg / litre / piece, e.g. "€1,26/l" — for comparing products of different sizes */
   unit_price: string | null;
   /** Active promotion label on the tile, e.g. "1+1 gratis" */
   promo_label: string | null;
@@ -348,7 +349,8 @@ function tileToRaw(tile: ProductTile): RawSearchResult {
     price: tile.displayPrice,
     image_id: tile.imageId ?? "",
     unit_quantity: tile.unitQuantity,
-    unit_price: tile.unitPrice,
+    // Computed from price + size so every result uses the same format
+    unit_price: formatComparisonPrice(tile.comparisonPrice) ?? tile.unitPrice,
     promo_label: tilePromoLabel(tile),
   };
 }
@@ -421,6 +423,49 @@ export async function clearCart(): Promise<void> {
 
 function formatEuro(cents: number): string {
   return `€${(cents / 100).toFixed(2).replace(".", ",")}`;
+}
+
+const COMPARISON_UNIT_LABEL: Record<string, string> = { kg: "kg", l: "l", piece: "stuk" };
+
+/** "€2,99/kg" from a library comparison price, or null when the size has none. */
+function formatComparisonPrice(cp: ComparisonPrice | null | undefined): string | null {
+  if (!cp) return null;
+  return `${formatEuro(cp.price)}/${COMPARISON_UNIT_LABEL[cp.unit] ?? cp.unit}`;
+}
+
+export interface CheaperOption {
+  picnic_id: string;
+  name: string;
+  image_id: string;
+  /** Package price in cents */
+  price: number;
+  unit_quantity: string;
+  /** e.g. "€2,49/kg" */
+  unit_price: string;
+  /** e.g. "€0,50/kg" */
+  saving_per_unit: string;
+}
+
+/**
+ * Similar products that cost less per kg / litre / piece, cheapest first —
+ * the way you'd compare shelf labels. One product-page request.
+ */
+export async function getCheaperOptions(
+  productId: string
+): Promise<{ unit_price: string | null; options: CheaperOption[] }> {
+  const result = await withAuthRetry((picnic) => picnic.catalog.getCheaperAlternatives(productId));
+  return {
+    unit_price: formatComparisonPrice(result.comparisonPrice),
+    options: result.alternatives.map((a) => ({
+      picnic_id: a.id,
+      name: a.name,
+      image_id: a.imageId,
+      price: a.displayPrice,
+      unit_quantity: a.unitQuantity,
+      unit_price: formatComparisonPrice(a.comparisonPrice) ?? "",
+      saving_per_unit: formatComparisonPrice({ ...a.comparisonPrice, price: a.savingPerUnit, lowestPrice: null }) ?? "",
+    })),
+  };
 }
 
 /**

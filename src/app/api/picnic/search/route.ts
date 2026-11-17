@@ -19,8 +19,10 @@ export async function PUT(request: Request) {
 
     const db = getDb();
     const result = db.prepare(
-      "UPDATE picnic_products SET picnic_id = ?, name = ?, image_id = ?, price = ?, unit_quantity = ?, quantity = COALESCE(?, quantity), auto_matched = 0 WHERE ingredient_id = ?"
-    ).run(picnic_id, name, image_id, price, unit_quantity, qty, ingredient_id);
+      // SET expressions see the old row: keep the promo label only when the
+      // product stays the same (a bundle tier), drop it on a product swap
+      "UPDATE picnic_products SET promo_label = CASE WHEN picnic_id = ? THEN promo_label ELSE NULL END, picnic_id = ?, name = ?, image_id = ?, price = ?, unit_quantity = ?, quantity = COALESCE(?, quantity), auto_matched = 0 WHERE ingredient_id = ?"
+    ).run(picnic_id, picnic_id, name, image_id, price, unit_quantity, qty, ingredient_id);
 
     // Ingredient had no matched product yet (e.g. matching failed at week
     // creation) — insert instead of silently updating zero rows
