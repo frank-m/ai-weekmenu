@@ -4,6 +4,38 @@ import { useState, useEffect } from "react";
 import Button from "./ui/Button";
 import Spinner from "./ui/Spinner";
 
+// Shared by both model pickers; a saved value not listed here is still shown as "(current)"
+const GEMINI_MODELS: { value: string; label: string }[] = [
+  { value: "gemini-3.8-flash", label: "Gemini 3.8 Flash" },
+  { value: "gemini-3.6-flash", label: "Gemini 3.6 Flash" },
+  { value: "gemini-3.5-flash-lite", label: "Gemini 3.5 Flash-Lite (cheapest)" },
+];
+
+function ModelSelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
+    >
+      {GEMINI_MODELS.map((m) => (
+        <option key={m.value} value={m.value}>
+          {m.label}
+        </option>
+      ))}
+      {!GEMINI_MODELS.some((m) => m.value === value) && (
+        <option value={value}>{value} (current)</option>
+      )}
+    </select>
+  );
+}
+
 interface SettingsModalProps {
   onClose: () => void;
 }
@@ -11,7 +43,8 @@ interface SettingsModalProps {
 export default function SettingsModal({ onClose }: SettingsModalProps) {
   const [settings, setSettings] = useState({
     gemini_api_key: "",
-    gemini_model: "gemini-3.0-flash-preview",
+    gemini_model: "gemini-3.8-flash",
+    gemini_matching_model: "gemini-3.5-flash-lite",
     picnic_username: "",
     picnic_password: "",
     picnic_country_code: "NL",
@@ -207,34 +240,26 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                 </div>
                 <div>
                   <label className="block text-sm text-gray-600 mb-1">
-                    Model
+                    Recipe model
                   </label>
-                  <select
+                  <ModelSelect
                     value={settings.gemini_model}
-                    onChange={(e) =>
-                      setSettings({ ...settings, gemini_model: e.target.value })
+                    onChange={(v) => setSettings({ ...settings, gemini_model: v })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">
+                    Product matching model
+                  </label>
+                  <ModelSelect
+                    value={settings.gemini_matching_model}
+                    onChange={(v) =>
+                      setSettings({ ...settings, gemini_matching_model: v })
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  >
-                    <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                    <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                    <option value="gemini-2.5-flash-lite">
-                      Gemini 2.5 Flash Lite
-                    </option>
-                    <option value="gemini-3.0-flash-preview">Gemini 3 Flash (Preview)</option>
-                    <option value="gemini-3-pro-preview">Gemini 3 Pro (Preview)</option>
-                    {![
-                      "gemini-2.5-flash",
-                      "gemini-2.5-pro",
-                      "gemini-2.5-flash-lite",
-                      "gemini-3.0-flash-preview",
-                      "gemini-3-pro-preview",
-                    ].includes(settings.gemini_model) && (
-                      <option value={settings.gemini_model}>
-                        {settings.gemini_model} (current)
-                      </option>
-                    )}
-                  </select>
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Matching ingredients to Picnic products uses the most tokens; a Flash-Lite model keeps it cheap.
+                  </p>
                 </div>
               </div>
             </div>

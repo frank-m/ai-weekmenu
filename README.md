@@ -41,7 +41,8 @@ Create `.env.local` in the project root:
 
 ```
 GEMINI_API_KEY=your-gemini-api-key
-GEMINI_MODEL=gemini-3.0-flash-preview
+GEMINI_MODEL=gemini-3.8-flash
+GEMINI_MATCHING_MODEL=gemini-3.5-flash-lite
 PICNIC_USERNAME=your-picnic-email
 PICNIC_PASSWORD=your-picnic-password
 PICNIC_COUNTRY_CODE=NL
@@ -136,7 +137,8 @@ No analytics, no telemetry, no third-party tracking.
 | Variable | Description | Default |
 |---|---|---|
 | `GEMINI_API_KEY` | Google Gemini API key | — |
-| `GEMINI_MODEL` | Gemini model to use | `gemini-3.0-flash-preview` |
+| `GEMINI_MODEL` | Gemini model for recipe generation | `gemini-3.8-flash` |
+| `GEMINI_MATCHING_MODEL` | Gemini model for Picnic product matching (token-heavy tool loop) | `gemini-3.5-flash-lite` |
 | `PICNIC_USERNAME` | Picnic account email | — |
 | `PICNIC_PASSWORD` | Picnic account password | — |
 | `PICNIC_COUNTRY_CODE` | Picnic country | `NL` |

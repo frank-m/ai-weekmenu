@@ -17,6 +17,7 @@ export function getDb(): Database.Database {
     migrateRecipesWeekIdNullable(db);
     migrateRecipesCalories(db);
     migrateRecipesRating(db);
+    migrateDeprecatedGeminiModel(db);
   }
   return db;
 }
@@ -61,6 +62,25 @@ function migrateRecipesCalories(db: Database.Database): void {
   if (!columns.some((c) => c.name === "calories_per_serving")) {
     db.exec("ALTER TABLE recipes ADD COLUMN calories_per_serving INTEGER NOT NULL DEFAULT 0");
   }
+}
+
+// Saved model IDs that are deprecated (or were never valid, like the old
+// "gemini-3.0-flash-preview" default). Clearing them lets getModel() fall back
+// to the current default instead of leaving users pinned to a dying model.
+const DEPRECATED_GEMINI_MODELS = [
+  "gemini-3.0-flash-preview",
+  "gemini-3-flash-preview",
+  "gemini-3-pro-preview",
+  "gemini-2.5-flash",
+  "gemini-2.5-pro",
+  "gemini-2.5-flash-lite",
+];
+
+function migrateDeprecatedGeminiModel(db: Database.Database): void {
+  const placeholders = DEPRECATED_GEMINI_MODELS.map(() => "?").join(", ");
+  db.prepare(
+    `DELETE FROM settings WHERE key IN ('gemini_model', 'gemini_matching_model') AND value IN (${placeholders})`
+  ).run(...DEPRECATED_GEMINI_MODELS);
 }
 
 function migrateRecipesRating(db: Database.Database): void {
