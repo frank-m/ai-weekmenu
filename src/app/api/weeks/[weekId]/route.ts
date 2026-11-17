@@ -92,14 +92,14 @@ export async function GET(
         const product = db
           .prepare("SELECT * FROM picnic_products WHERE ingredient_id = ?")
           .get(ing.id) as
-          | (Omit<PicnicProduct, "added_to_cart"> & { added_to_cart: number })
+          | (Omit<PicnicProduct, "added_to_cart" | "auto_matched"> & { added_to_cart: number; auto_matched: number })
           | undefined;
 
         return {
           ...ing,
           is_staple: !!ing.is_staple,
           picnic_product: product
-            ? { ...product, added_to_cart: !!product.added_to_cart }
+            ? { ...product, added_to_cart: !!product.added_to_cart, auto_matched: !!product.auto_matched }
             : null,
         };
       });

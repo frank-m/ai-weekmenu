@@ -18,6 +18,7 @@ export function getDb(): Database.Database {
     migrateRecipesCalories(db);
     migrateRecipesRating(db);
     migrateDeprecatedGeminiModel(db);
+    migratePicnicProductsAutoMatched(db);
   }
   return db;
 }
@@ -81,6 +82,13 @@ function migrateDeprecatedGeminiModel(db: Database.Database): void {
   db.prepare(
     `DELETE FROM settings WHERE key IN ('gemini_model', 'gemini_matching_model') AND value IN (${placeholders})`
   ).run(...DEPRECATED_GEMINI_MODELS);
+}
+
+function migratePicnicProductsAutoMatched(db: Database.Database): void {
+  const columns = db.pragma("table_info(picnic_products)") as Array<{ name: string }>;
+  if (!columns.some((c) => c.name === "auto_matched")) {
+    db.exec("ALTER TABLE picnic_products ADD COLUMN auto_matched INTEGER NOT NULL DEFAULT 0");
+  }
 }
 
 function migrateRecipesRating(db: Database.Database): void {

@@ -424,7 +424,9 @@ export async function matchIngredientsWithFallback(
     if (productMap[name]) continue;
     await delay(500);
     try {
-      productMap[name] = await searchProduct(name);
+      const product = await searchProduct(name);
+      // First search result, unvetted — flag it so the UI can ask the user to check
+      productMap[name] = product ? { ...product, auto_matched: true } : null;
     } catch (searchErr) {
       if (searchErr instanceof PicnicTwoFactorRequiredError) throw searchErr;
       productMap[name] = null;

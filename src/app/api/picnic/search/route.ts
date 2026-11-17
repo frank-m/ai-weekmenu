@@ -17,7 +17,7 @@ export async function PUT(request: Request) {
 
     const db = getDb();
     const result = db.prepare(
-      "UPDATE picnic_products SET picnic_id = ?, name = ?, image_id = ?, price = ?, unit_quantity = ? WHERE ingredient_id = ?"
+      "UPDATE picnic_products SET picnic_id = ?, name = ?, image_id = ?, price = ?, unit_quantity = ?, auto_matched = 0 WHERE ingredient_id = ?"
     ).run(picnic_id, name, image_id, price, unit_quantity, ingredient_id);
 
     // Ingredient had no matched product yet (e.g. matching failed at week
