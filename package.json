@@ -22,7 +22,7 @@
     "better-sqlite3": "^12.6.2",
     "cryptr": "^6.4.0",
     "next": "^14.2.35",
-    "picnic-api": "^3.2.0",
+    "picnic-api": "5.6.0",
     "postcss": "^8.5.6",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

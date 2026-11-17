@@ -2,8 +2,10 @@
  * Minimal Picnic API diagnostic script.
  * Run with: npx tsx scripts/test-picnic.ts
  *
- * Tests login, session, search, and PDP in sequence.
- * Reads credentials from SQLite DB (weekmenu.db) automatically.
+ * Tests login, session, search, product page and promotions in sequence.
+ * Reads credentials from SQLite DB (weekmenu.db) automatically. Reuses the
+ * app's stored session (picnic_auth_key) when present, so it doesn't trigger a
+ * new login + 2FA SMS; pass --fresh-login to force a password login.
  */
 
 import path from "path";
@@ -29,7 +31,7 @@ function getSettingFromDb(key: string): string | undefined {
   const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as { value: string } | undefined;
   db.close();
   if (!row) return undefined;
-  if (key === "picnic_password") {
+  if (key === "picnic_password" || key === "picnic_auth_key") {
     try { return decryptValue(row.value); } catch { return row.value; }
   }
   return row.value;
@@ -55,108 +57,106 @@ globalThis.fetch = async function patchedFetch(input: RequestInfo | URL, init?: 
   return response;
 };
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const PicnicClient = require("picnic-api");
+import PicnicClient from "picnic-api";
+
+const storedAuthKey = process.argv.includes("--fresh-login") ? "" : getSettingFromDb("picnic_auth_key") || "";
+
+/** Prints Picnic's error body too — it usually says *why* (e.g. a 422 code). */
+function report(step: string, err: unknown): never {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.log(`  ❌ ${step} FAILED: ${msg}`);
+  console.log(`  Raw HTTP status: ${lastHttpStatus} ${lastHttpStatusText}`);
+  if (PicnicClient.isPicnicApiError(err)) {
+    console.log(`  Picnic error code: ${err.code ?? "(none)"}`);
+    console.log(`  Picnic error body: ${err.body.slice(0, 500)}`);
+  }
+  console.log(`\n❌ FAILED at ${step} — stopping.`);
+  process.exit(1);
+}
 
 async function run() {
   console.log("=== Picnic API Diagnostic ===\n");
-  console.log(`Credentials source: DB / env`);
-  console.log(`Username: ${username || "(empty)"}`);
-  console.log(`Password: ${password ? "***" + password.slice(-2) : "(empty)"}`);
+  console.log(`Username: ${username ? "(set)" : "(empty)"}`);
+  console.log(`Password: ${password ? "(set)" : "(empty)"}`);
   console.log(`Country:  ${countryCode}\n`);
 
-  if (!username || !password) {
-    console.log("❌ FAILED: No credentials found. Check weekmenu.db settings or .env.local.");
-    process.exit(1);
+  const picnic = new PicnicClient({
+    countryCode: countryCode as PicnicClient.Types.common.CountryCode,
+    ...(storedAuthKey ? { authKey: storedAuthKey } : {}),
+  });
+  console.log(`Agent:    ${picnic.agent}\n`);
+
+  // Test 1: Login (skipped when reusing the app's stored session)
+  if (storedAuthKey) {
+    console.log("Test 1: Login skipped — reusing the app's stored session (use --fresh-login to test login)\n");
+  } else {
+    if (!username || !password) {
+      console.log("❌ FAILED: No credentials found. Check weekmenu.db settings or .env.local.");
+      process.exit(1);
+    }
+    console.log("Test 1: Login...");
+    try {
+      const loginResult = await picnic.auth.login(username, password);
+      if (loginResult.secondFactorAuthenticationRequired) {
+        console.log("  ⚠️  2FA REQUIRED — verify via the app's Settings → Picnic before API calls work.");
+      }
+      console.log("  ✅ Login succeeded\n");
+    } catch (err) {
+      if (lastHttpStatus === 401) console.log("  → Bad credentials (wrong username/password).");
+      report("Login", err);
+    }
   }
 
-  // No apiVersion → defaults to "15" (same as the app)
-  const picnic = new PicnicClient({ countryCode });
-
-  // Test 1: Login
-  console.log("Test 1: Login...");
+  // Test 2: getUser — confirms the session is live (needs 2FA to be verified first)
+  console.log("Test 2: user.getUser()...");
   try {
-    const loginResult = await picnic.login(username, password);
-    console.log("  Login response:", JSON.stringify(loginResult));
-    if (loginResult?.second_factor_authentication_required) {
-      console.log("  ⚠️  2FA REQUIRED — account needs two-factor authentication before API calls work.");
-    }
-    console.log("  ✅ Login succeeded\n");
+    await picnic.user.getUser();
+    console.log("  ✅ Session active\n");
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.log(`  ❌ Login FAILED: ${msg}`);
-    console.log(`  Raw HTTP status: ${lastHttpStatus} ${lastHttpStatusText}`);
-    if (lastHttpStatus === 403) {
-      console.log("  → IP may be rate-limited/blocked by Picnic, or credentials are wrong.");
-    } else if (lastHttpStatus === 401) {
-      console.log("  → Bad credentials (wrong username/password).");
+    if (lastHttpStatus === 401 || lastHttpStatus === 403) {
+      console.log("  → Session not valid: complete 2FA in the app (Settings → Picnic), or run with --fresh-login.");
     }
-    console.log("\n❌ FAILED at Login — stopping.");
-    process.exit(1);
+    report("getUser", err);
   }
 
-  // Test 2: getUserDetails — confirms session is live (needs 2FA to be verified first)
-  console.log("Test 2: getUserDetails()...");
-  try {
-    const details = await picnic.getUserDetails();
-    const name = details?.firstname || details?.first_name || "(unknown)";
-    const email = details?.contact_email || details?.email || "(unknown)";
-    console.log(`  ✅ Session active — user: ${name} (${email})\n`);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.log(`  ❌ getUserDetails FAILED: ${msg}`);
-    console.log(`  Raw HTTP status: ${lastHttpStatus} ${lastHttpStatusText}`);
-    if (lastHttpStatus === 403) {
-      console.log("\n  ROOT CAUSE: Picnic account requires 2FA verification.");
-      console.log("  Login succeeded but the session token is blocked until 2FA is completed.");
-      console.log("\n  FIX: Open the app → Settings → Picnic section → click 'Send SMS code' → enter code → 'Verify'.");
-      console.log("  The app now supports 2FA verification in the Settings modal.");
-    }
-    console.log("\n❌ FAILED at getUserDetails — stopping.");
-    process.exit(1);
-  }
-
-  // Test 3: search("melk")
-  console.log('Test 3: search("melk")...');
+  // Test 3: search
+  console.log('Test 3: catalog.getSearchResults("melk")...');
   let firstProductId: string | null = null;
   try {
-    const results = await picnic.search("melk");
-    const items = Array.isArray(results) ? results : [];
-    if (items.length === 0) {
+    const results = await picnic.catalog.getSearchResults("melk");
+    const tiles = (results.products?.sections ?? []).flatMap((s) => s.products);
+    if (tiles.length === 0) {
       console.log("  ⚠️  Search returned 0 results (unexpected for 'melk')");
     } else {
-      const first = items[0];
-      firstProductId = first?.id || first?.items?.[0]?.id || null;
-      const name = first?.name || first?.items?.[0]?.name || "(unknown)";
-      console.log(`  ✅ Search returned ${items.length} result(s) — first: "${name}" (id: ${firstProductId})\n`);
+      firstProductId = tiles[0].id;
+      console.log(`  ✅ ${tiles.length} result(s) — first: "${tiles[0].name}" (${tiles[0].id}, ${tiles[0].unitPrice ?? "no unit price"})\n`);
     }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.log(`  ❌ search FAILED: ${msg}`);
-    console.log(`  Raw HTTP status: ${lastHttpStatus} ${lastHttpStatusText}`);
-    if (lastHttpStatus === 403) {
-      console.log("  → Search endpoint is rate-limited or blocked.");
-    }
-    console.log("\n❌ FAILED at search — stopping.");
-    process.exit(1);
+    report("search", err);
   }
 
-  // Test 4: getProductDetailsPage
+  // Test 4: product page
   if (firstProductId) {
-    console.log(`Test 4: getProductDetailsPage("${firstProductId}")...`);
+    console.log(`Test 4: catalog.getProduct("${firstProductId}")...`);
     try {
-      const pdp = await picnic.getProductDetailsPage(firstProductId);
-      const hasBody = pdp && typeof pdp === "object";
-      console.log(`  ✅ PDP returned ${hasBody ? "data" : "empty response"}\n`);
+      const product = await picnic.catalog.getProduct(firstProductId);
+      console.log(`  ✅ "${product.name}" — tiers: ${product.priceRanges?.length ?? 0}, promotion: ${product.promotion?.label ?? "none"}\n`);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.log(`  ❌ getProductDetailsPage FAILED: ${msg}`);
-      console.log(`  Raw HTTP status: ${lastHttpStatus} ${lastHttpStatusText}`);
-      console.log("\n❌ FAILED at getProductDetailsPage — stopping.");
-      process.exit(1);
+      report("getProduct", err);
     }
   } else {
     console.log("Test 4: Skipped (no product ID from search)\n");
+  }
+
+  // Test 5: promotions page (Deals)
+  console.log("Test 5: catalog.getPromotions()...");
+  try {
+    const promotions = await picnic.catalog.getPromotions();
+    const products = promotions.sections.reduce((n, s) => n + s.products.length, 0);
+    const groups = promotions.sections.reduce((n, s) => n + s.groups.length, 0);
+    console.log(`  ✅ ${promotions.sections.length} sections, ${products} products, ${groups} promotion groups\n`);
+  } catch (err) {
+    report("getPromotions", err);
   }
 
   console.log("✅ ALL TESTS PASSED");

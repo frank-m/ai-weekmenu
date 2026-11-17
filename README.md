@@ -17,11 +17,11 @@ Note: This app was fully vibecoded and is not meant to be ran in a production sc
 - **Configurable staples** — customize which ingredients are considered pantry staples (e.g. salt, oil, pasta) so the AI classifies them correctly
 - **Portion sizes** — set a default calorie target in settings and choose per-week portion sizes (light, normal, large) in the creation wizard
 - **Frequent items** — save commonly purchased products for quick access outside of recipes, with live promo badges showing active Picnic deals
-- **Bundle selection** — ingredient rows and frequent items support a bundle picker to choose multi-pack variants (e.g. 6-pack vs single)
+- **Bundle selection** — ingredient rows and frequent items support a bundle picker for Picnic's volume prices (e.g. "vanaf 4 €2,79 each"); picking one sets the quantity
 - **Leftover tracking** — tell the AI what leftovers you have so it incorporates them into new recipes
 - **Recipe regeneration** — regenerate individual recipes without recreating the entire week; previously rejected suggestions and recently cooked dishes are avoided for variety
 - **Connection status** — the navbar shows a live Picnic connection indicator; weeks with unmatched ingredients show a banner with a one-click "Retry matching" action
-- **Deals** *(experimental)* — discovers Picnic promotions via the product detail page "Meer met korting" section; caches on-sale products and injects them into the Gemini prompt so the AI prefers cheaper ingredients. Enable in Settings → Experimental Features.
+- **Deals** *(experimental)* — reads Picnic's promotions page (the app's "Acties" tab, including multi-product promotions); caches on-sale products and injects them into the Gemini prompt so the AI prefers cheaper ingredients. Enable in Settings → Experimental Features.
 
 ## Getting Started
 
@@ -80,7 +80,7 @@ A GitHub Actions workflow publishes the image to `ghcr.io` on push to `main` or 
 - **Next.js 14** (App Router) with TypeScript
 - **SQLite** (better-sqlite3) for all persistent data
 - **Gemini API** (`@google/genai`) for structured recipe generation and ingredient matching
-- **Picnic API** (`picnic-api`) for product search and cart management
+- **Picnic API** ([`picnic-api`](https://github.com/MRVDH/picnic-api) 5.x) for login/2FA, product search, product pages, promotions and cart management
 - **Tailwind CSS** for responsive, mobile-first UI
 
 ### LLM-driven ingredient matching
@@ -101,7 +101,7 @@ See [CLAUDE.md](CLAUDE.md) for detailed architecture, database schema, and API r
 
 ### What stays local (SQLite)
 
-All recipes, ingredients, preferences, meal history, frequent items, shopping cart state, matched product info, and (when Deals is enabled) cached on-sale products and known promotion IDs. Nothing is shared externally beyond what is listed below.
+All recipes, ingredients, preferences, meal history, frequent items, shopping cart state, matched product info, and (when Deals is enabled) cached on-sale products and promotion group IDs. Nothing is shared externally beyond what is listed below.
 
 ### What is sent to Gemini (Google)
 

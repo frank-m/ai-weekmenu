@@ -5,8 +5,10 @@ import { getDb } from "@/lib/db";
 
 export async function PUT(request: Request) {
   try {
-    const { ingredient_id, picnic_id, name, image_id, price, unit_quantity } =
+    const { ingredient_id, picnic_id, name, image_id, price, unit_quantity, quantity } =
       await request.json();
+    // Bundle tiers send a quantity; a plain product swap keeps the stored one
+    const qty = typeof quantity === "number" && quantity >= 1 ? Math.round(quantity) : null;
 
     if (!ingredient_id || !picnic_id) {
       return NextResponse.json(
@@ -17,15 +19,15 @@ export async function PUT(request: Request) {
 
     const db = getDb();
     const result = db.prepare(
-      "UPDATE picnic_products SET picnic_id = ?, name = ?, image_id = ?, price = ?, unit_quantity = ?, auto_matched = 0 WHERE ingredient_id = ?"
-    ).run(picnic_id, name, image_id, price, unit_quantity, ingredient_id);
+      "UPDATE picnic_products SET picnic_id = ?, name = ?, image_id = ?, price = ?, unit_quantity = ?, quantity = COALESCE(?, quantity), auto_matched = 0 WHERE ingredient_id = ?"
+    ).run(picnic_id, name, image_id, price, unit_quantity, qty, ingredient_id);
 
     // Ingredient had no matched product yet (e.g. matching failed at week
     // creation) — insert instead of silently updating zero rows
     if (result.changes === 0) {
       db.prepare(
-        "INSERT INTO picnic_products (ingredient_id, picnic_id, name, image_id, price, unit_quantity) VALUES (?, ?, ?, ?, ?, ?)"
-      ).run(ingredient_id, picnic_id, name, image_id, price, unit_quantity);
+        "INSERT INTO picnic_products (ingredient_id, picnic_id, name, image_id, price, unit_quantity, quantity) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run(ingredient_id, picnic_id, name, image_id, price, unit_quantity, qty ?? 1);
     }
 
     return NextResponse.json({ ok: true });

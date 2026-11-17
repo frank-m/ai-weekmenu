@@ -1,132 +1,66 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { getPromoProductsFromPDP, delay, PicnicTwoFactorRequiredError } from "@/lib/picnic";
+import {
+  getPromotionsOverview,
+  getPromotionGroupProducts,
+  delay,
+  PicnicTwoFactorRequiredError,
+} from "@/lib/picnic";
 import { PromoProduct } from "@/lib/types";
 
-const DELAY_MS = 500;       // conservative delay between PDP calls
-const MAX_CALLS = 40;       // hard cap per refresh run
+const DELAY_MS = 500; // conservative delay between promotion-group calls
+const MAX_GROUP_CALLS = 40; // hard cap per refresh run
 
-interface FrequentItem {
-  picnic_id: string;
-  name: string;
-  image_id: string;
-  price: number;
-}
-
-interface KnownPromotion {
-  promotion_id: string;
-  seed_picnic_id: string;
-  label: string;
-  last_seen_at: number | null;
-}
-
+/**
+ * Refreshes the deals cache from Picnic's promotions page: one call for the page
+ * itself, plus one per multi-product promotion group (capped). Groups are
+ * tracked in known_promotions; groups no longer on the page are marked inactive.
+ */
 export async function POST() {
   try {
     const db = getDb();
     const now = Math.floor(Date.now() / 1000);
 
-    const frequentItems = db
-      .prepare("SELECT picnic_id, name, image_id, price FROM frequent_items")
-      .all() as FrequentItem[];
+    const overview = await getPromotionsOverview();
+    const saleMap = new Map<string, PromoProduct>();
+    for (const p of overview.products) saleMap.set(p.picnic_id, p);
 
-    const knownPromotions = db
-      .prepare(
-        "SELECT promotion_id, seed_picnic_id, label, last_seen_at FROM known_promotions ORDER BY last_seen_at DESC NULLS LAST"
-      )
-      .all() as KnownPromotion[];
+    // Most recently seen groups first, so a capped run covers the likeliest ones
+    const lastSeen = new Map(
+      (
+        db.prepare("SELECT promotion_id, last_seen_at FROM known_promotions").all() as Array<{
+          promotion_id: string;
+          last_seen_at: number | null;
+        }>
+      ).map((r) => [r.promotion_id, r.last_seen_at ?? 0])
+    );
+    const groups = [...overview.groups].sort(
+      (a, b) => (lastSeen.get(b.id) ?? 0) - (lastSeen.get(a.id) ?? 0)
+    );
 
-    const refreshedPromoIds = new Set<string>();
-    const saleMap = new Map<string, Omit<PromoProduct, "promotion_id"> & { fetched_at: number }>();
-
-    interface PromoUpsert {
-      seed_picnic_id?: string;
-      label?: string;
-      active: number;
-      last_seen_at: number | null;
-    }
-    const promoUpserts = new Map<string, PromoUpsert>();
-
-    let callCount = 0;
-
-    const recordPromoProducts = (promoProducts: PromoProduct[]) => {
-      for (const p of promoProducts) {
-        saleMap.set(p.picnic_id, { ...p, fetched_at: now });
-
-        if (!refreshedPromoIds.has(p.promotion_id)) {
-          refreshedPromoIds.add(p.promotion_id);
-          const existing = knownPromotions.find((k) => k.promotion_id === p.promotion_id);
-          promoUpserts.set(p.promotion_id, {
-            ...(!existing ? { seed_picnic_id: p.picnic_id, label: p.promo_label } : {}),
-            active: 1,
-            last_seen_at: now,
-          });
-        }
-      }
-    }
-
-    // ── Phase 1: Seed from frequent items ──────────────────────────────────────
-    for (let i = 0; i < frequentItems.length; i++) {
-      if (callCount >= MAX_CALLS) break;
-      const item = frequentItems[i];
-
-      // Skip if this product was already picked up via another item's promo group
-      if (saleMap.has(item.picnic_id)) continue;
-
-      if (i > 0) await delay(DELAY_MS);
-      callCount++;
-
-      try {
-        const { selfLabel, promoProducts } = await getPromoProductsFromPDP(item.picnic_id);
-
-        if (selfLabel) {
-          saleMap.set(item.picnic_id, {
-            picnic_id: item.picnic_id,
-            name: item.name,
-            image_id: item.image_id,
-            price: item.price,
-            promo_label: selfLabel,
-            fetched_at: now,
-          });
-        }
-
-        recordPromoProducts(promoProducts);
-      } catch (err) {
-        if (err instanceof PicnicTwoFactorRequiredError) throw err;
-        console.error(`[deals/refresh] Phase 1 failed for ${item.picnic_id}:`, err);
-      }
-    }
-
-    // ── Phase 2: Check all known promotions not yet refreshed ─────────────────
-    // Already ordered by last_seen_at DESC so recently-active ones go first
-    const phase2 = knownPromotions.filter((k) => !refreshedPromoIds.has(k.promotion_id));
-
-    for (let i = 0; i < phase2.length; i++) {
-      if (callCount >= MAX_CALLS) break;
-      const known = phase2[i];
-
+    let callCount = 1; // the promotions page itself
+    let groupCalls = 0;
+    const seenGroups: Array<{ id: string; seed: string; label: string }> = [];
+    for (const group of groups) {
+      if (groupCalls >= MAX_GROUP_CALLS) break;
       await delay(DELAY_MS);
+      groupCalls++;
       callCount++;
-
       try {
-        const { promoProducts } = await getPromoProductsFromPDP(known.seed_picnic_id);
-
-        const matching = promoProducts.filter((p) => p.promotion_id === known.promotion_id);
-
-        if (matching.length > 0) {
-          recordPromoProducts(matching);
-        } else {
-          promoUpserts.set(known.promotion_id, { active: 0, last_seen_at: null });
+        const products = await getPromotionGroupProducts(group);
+        for (const p of products) {
+          if (!saleMap.has(p.picnic_id)) saleMap.set(p.picnic_id, p);
         }
+        seenGroups.push({ id: group.id, seed: products[0]?.picnic_id ?? "", label: group.label || group.name });
       } catch (err) {
         if (err instanceof PicnicTwoFactorRequiredError) throw err;
-        // Transient failure (rate limit, network) — leave the promotion's
-        // state untouched; only a successful fetch with no matching promo
-        // proves it's actually inactive
-        console.error(`[deals/refresh] Phase 2 failed for promo ${known.promotion_id}:`, err);
+        // Transient failure (rate limit, network) — the group is still listed on
+        // the promotions page, so record it as seen without its products
+        console.error(`[deals/refresh] promotion group ${group.id} failed:`, err);
+        seenGroups.push({ id: group.id, seed: "", label: group.label || group.name });
       }
     }
 
-    // ── Persist to DB ──────────────────────────────────────────────────────────
     const upsertSale = db.prepare(`
       INSERT INTO sale_cache (picnic_id, name, image_id, price, promo_label, fetched_at)
       VALUES (@picnic_id, @name, @image_id, @price, @promo_label, @fetched_at)
@@ -137,42 +71,44 @@ export async function POST() {
         promo_label = excluded.promo_label,
         fetched_at = excluded.fetched_at
     `);
-
     const upsertPromo = db.prepare(`
       INSERT INTO known_promotions (promotion_id, seed_picnic_id, label, first_seen_at, last_seen_at, active)
-      VALUES (@promotion_id, @seed_picnic_id, @label, @first_seen_at, @last_seen_at, @active)
+      VALUES (@promotion_id, @seed_picnic_id, @label, @now, @now, 1)
       ON CONFLICT(promotion_id) DO UPDATE SET
-        last_seen_at = CASE WHEN @last_seen_at IS NOT NULL THEN @last_seen_at ELSE last_seen_at END,
-        active = @active
+        seed_picnic_id = CASE WHEN excluded.seed_picnic_id != '' THEN excluded.seed_picnic_id ELSE seed_picnic_id END,
+        label = excluded.label,
+        last_seen_at = @now,
+        active = 1
     `);
 
     db.transaction(() => {
-      // Remove any previously cached false positives (cart quantity labels)
-      db.prepare("DELETE FROM sale_cache WHERE promo_label LIKE '%in bestelling%'").run();
-
+      // The promotions page is the complete list: anything not on it has ended
+      db.prepare("DELETE FROM sale_cache").run();
       for (const item of Array.from(saleMap.values())) {
-        upsertSale.run(item);
-      }
-      for (const [promotion_id, u] of Array.from(promoUpserts.entries())) {
-        const existing = knownPromotions.find((k) => k.promotion_id === promotion_id);
-        upsertPromo.run({
-          promotion_id,
-          seed_picnic_id: u.seed_picnic_id ?? existing?.seed_picnic_id ?? "",
-          label: u.label ?? existing?.label ?? "",
-          first_seen_at: now,
-          last_seen_at: u.last_seen_at ?? null,
-          active: u.active,
+        upsertSale.run({
+          picnic_id: item.picnic_id,
+          name: item.name,
+          image_id: item.image_id,
+          price: item.price,
+          promo_label: item.promo_label,
+          fetched_at: now,
         });
       }
+      const listedIds = new Set(overview.groups.map((g) => g.id));
+      db.prepare("UPDATE known_promotions SET active = 0").run();
+      for (const g of seenGroups) {
+        upsertPromo.run({ promotion_id: g.id, seed_picnic_id: g.seed, label: g.label, now });
+      }
+      // Groups listed but skipped by the cap are still active
+      const markActive = db.prepare("UPDATE known_promotions SET active = 1 WHERE promotion_id = ?");
+      Array.from(listedIds).forEach((id) => markActive.run(id));
     })();
-
-    const cappedEarly = callCount >= MAX_CALLS;
 
     return NextResponse.json({
       items_found: saleMap.size,
-      promotions_checked: refreshedPromoIds.size,
+      promotions_checked: groupCalls,
       calls_made: callCount,
-      capped: cappedEarly,
+      capped: groupCalls < overview.groups.length,
     });
   } catch (err) {
     if (err instanceof PicnicTwoFactorRequiredError) {

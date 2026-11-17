@@ -30,24 +30,11 @@ export async function GET(
 
     // Sync added_to_cart flags with actual Picnic cart (quantity-aware)
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cart: any = await getCart();
-      // Build a map of picnic product id → quantity in cart
-      const cartQuantities = new Map<string, number>();
-      if (cart?.items) {
-        for (const line of cart.items) {
-          const article = line.items?.[0];
-          if (!article?.id) continue;
-          // QUANTITY decorator is on the article
-          const qtyDecorator = article.decorators?.find(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (d: any) => d.type === "QUANTITY"
-          );
-          const qty = qtyDecorator?.quantity ?? 1;
-          const articleId = String(article.id);
-          cartQuantities.set(articleId, (cartQuantities.get(articleId) || 0) + qty);
-        }
-      }
+      const cart = await getCart();
+      // Map of picnic product id → quantity in cart
+      const cartQuantities = new Map<string, number>(
+        cart.map((item) => [item.id, item.quantity])
+      );
 
       // Get all picnic_products for this week, grouped by picnic_id
       const weekProducts = db

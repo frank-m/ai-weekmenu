@@ -167,6 +167,7 @@ export default function FrequentItemsPage() {
           image_id: bundle.image_id,
           price: bundle.price,
           unit_quantity: bundle.unit_quantity,
+          quantity: Math.max(bundle.min_quantity, bundleModalItem.quantity || 1),
         }),
       });
       await loadItems();
@@ -368,7 +369,7 @@ export default function FrequentItemsPage() {
         <BundleModal
           productId={bundleModalItem.picnic_id}
           productName={bundleModalItem.name}
-          currentBundleId={bundleModalItem.picnic_id}
+          currentQuantity={bundleModalItem.quantity || 1}
           onClose={() => setBundleModalItem(null)}
           onSelect={handleBundleSelect}
         />
