@@ -16,6 +16,8 @@ interface RecipeCardProps {
   leftovers?: string[];
   onRegenerate?: (recipeId: number) => void;
   regenerating?: boolean;
+  /** Live progress while regenerating, e.g. a model fallback notice */
+  regenerateStatus?: string | null;
   onRatingChange?: (recipeId: number, rating: number | null) => void;
 }
 
@@ -27,6 +29,7 @@ export default function RecipeCard({
   leftovers,
   onRegenerate,
   regenerating,
+  regenerateStatus,
   onRatingChange,
 }: RecipeCardProps) {
   const [showDetail, setShowDetail] = useState(false);
@@ -216,6 +219,11 @@ export default function RecipeCard({
               </Button>
             )}
           </div>
+          {regenerating && regenerateStatus && (
+            <p className="text-xs text-gray-500 mt-2" aria-live="polite">
+              {regenerateStatus}
+            </p>
+          )}
         </div>
       </div>
 

@@ -43,6 +43,8 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 ### Gemini Integration (lib/gemini.ts)
 - Uses `responseMimeType: 'application/json'` + `responseSchema` for guaranteed structured output; temperature left at the Gemini 3 default (1.0) per Google's guidance — variety comes from the prompt avoid-lists
 - Two models (both configurable in settings / env): `gemini_model` (`GEMINI_MODEL`, default `gemini-3.8-flash`) for recipe generation; `gemini_matching_model` (`GEMINI_MATCHING_MODEL`, default `gemini-3.5-flash-lite`, `thinkingLevel: LOW`) for the `matchIngredientsToProducts` tool loop, which dominates token usage. `testApiKey` uses the Lite default
+- Model fallback: every Gemini call goes through `ModelRunner` (lib/gemini.ts). On an overload error (`ApiError` 429/500/503/504, or UNAVAILABLE / RESOURCE_EXHAUSTED / "high demand" in the message) it retries the configured model once after 2s, then walks the chain in `lib/gemini-models.ts` (recipes: 3.8 Flash → 3.6 Flash → 3.5 Flash-Lite; matching: Flash-Lite → 3.6 → 3.8) and stays on the model that worked for the rest of the matching loop. Other errors are not retried. Model ids, labels and chains live in the client-safe `lib/gemini-models.ts` (also used by SettingsModal)
+- Progress messages: long requests (POST /api/weeks, regenerate, rematch) accept an `x-progress-id` header; `progressReporter(request)` (lib/progress.ts, in-memory on `globalThis`, 10 min TTL) records status lines ("Generating 5 recipes…", "… is busy, switching to …", "Searching Picnic directly…") that the client polls via `useProgress()` (lib/use-progress.ts) → `GET /api/progress/[id]` and shows in the loading indicator
 - `migrateDeprecatedGeminiModel` (db.ts) clears saved deprecated model IDs on startup so they fall back to the current defaults; extend `DEPRECATED_GEMINI_MODELS` when Google retires models
 - API key: settings DB → `GEMINI_API_KEY` env var fallback
 - Seasonal produce: when `preferences.seasonal !== false`, injects current Dutch season's produce list as a soft preference (see `lib/seasonal.ts`)
@@ -99,6 +101,7 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - `api/exclusions` — GET list, POST add, DELETE remove excluded ingredients/dishes
 - `api/recipes/[recipeId]/regenerate` — POST regenerate a single recipe; body accepts `{rejected_titles: string[]}` (session-accumulated avoid list); returns `picnic_matching` status
 - `api/recipes/[recipeId]/rating` — PATCH set recipe rating (1=👍, -1=👎, null=clear)
+- `api/progress/[id]` — GET latest progress message of a running request (`{message: string | null}`)
 
 ## Design Conventions
 
@@ -106,7 +109,7 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - Card-based responsive layouts with Tailwind
 - Navbar hosts the section links (My Recipes, Deals, Frequent Items, Staples, Exclusions — hamburger menu on mobile) and a Picnic connection status pill (green=connected, amber=2FA, red=offline, gray=unconfigured) that opens Settings; components dispatch `picnic:2fa-required` (opens Settings) and `picnic:status-changed` (re-checks the pill) window events
 - Picnic failures are surfaced, not swallowed: ingredient rows flash inline errors, the week page shows an unmatched-ingredients banner with "Retry matching", and the cart sidebar shows action errors
-- Loading spinners during AI generation and Picnic matching
+- Loading spinners during AI generation and Picnic matching, with live progress text (incl. model fallback notices) in the create wizard, the Regenerate button area and the "Retry matching" banner
 - Ingredient rows show: name + quantity | matched Picnic product + price + image | add-to-cart button (stacked vertically on mobile, horizontal on sm+)
 - Staple classification uses a user-editable DB list (`staples` table) instead of a hardcoded array; the list is included in the Gemini prompt
 - Calorie targets are configurable: `default_calories` setting + per-week portion size preference (light/normal/large)

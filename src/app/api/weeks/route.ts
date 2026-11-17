@@ -8,6 +8,7 @@ import {
 import { PicnicTwoFactorRequiredError } from "@/lib/picnic";
 import { CreateWeekRequest, GeneratedRecipe, Recipe, Week } from "@/lib/types";
 import { getStaples } from "@/lib/staples";
+import { progressReporter } from "@/lib/progress";
 
 export async function GET(request: Request) {
   try {
@@ -41,6 +42,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const report = progressReporter(request);
   try {
     const body: CreateWeekRequest = await request.json();
     const db = getDb();
@@ -78,7 +80,8 @@ export async function POST(request: Request) {
         body.preferences,
         existingTitles,
         undefined,
-        getVarietyContext()
+        getVarietyContext(),
+        { report }
       );
     }
 
@@ -178,7 +181,7 @@ export async function POST(request: Request) {
         ([name, quantity]) => ({ name, quantity })
       );
 
-      const productMap = await matchIngredientsWithFallback(uniqueIngredients);
+      const productMap = await matchIngredientsWithFallback(uniqueIngredients, { report });
       console.log("[weeks] matched products:", Object.keys(productMap).length);
 
       for (const ing of allIngredients) {
