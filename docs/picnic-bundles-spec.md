@@ -50,17 +50,17 @@ PDP labels block and doesn't apply to `promotion`.
 
 ## Deals
 
-`POST /api/picnic/deals/refresh` reads the promotions page:
+Deals are read live — there is no DB cache (the old `sale_cache` / `known_promotions` tables are
+unused). `getDeals()` in `src/lib/picnic.ts` keeps the result in memory for 15 minutes.
 
 1. `catalog.getPromotions()` — the app's "Acties" tab, as sections (personal promotions,
-   "Uitgelicht", one per category, bargain bin). Every tile with a `PROMO` label goes into
-   `sale_cache`.
+   "Uitgelicht", one per category, bargain bin). Every tile with a `PROMO` label is a deal.
 2. Each section also lists **promotion groups** — promotions on several products, e.g. "Korting op
-   Alpro". `catalog.getPromotionGroup(id)` returns their products; tiles without their own label
-   get the group's label. Max 40 group calls per run, 500ms apart, most-recently-seen first
-   (`known_promotions.last_seen_at`).
-3. `sale_cache` is replaced on every successful refresh — the promotions page is the complete list.
-   `known_promotions.active` = listed on the last refresh.
+   Alpro" (`{ id, name, label }`). Their products need one `catalog.getPromotionGroup(id)` call per
+   group, so they are only fetched when the user opens the group on the Deals page
+   (`GET /api/picnic/deals/groups/[groupId]`); tiles without their own label get the group's label.
+3. The Gemini prompt gets the page's deals (max 150) plus one line per group — the group name and
+   label tell the model as much as listing every product would.
 
 Not used (yet) but available in the library: `catalog.getCategoryPromotions(categoryId)` and
 `catalog.getCheaperAlternatives(productId)`.

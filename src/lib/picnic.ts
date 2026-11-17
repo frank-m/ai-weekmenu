@@ -510,3 +510,62 @@ function tileToPromoBase(tile: ProductTile) {
     price: tile.displayPrice,
   };
 }
+
+// ── Live deals with a short in-memory cache ─────────────────────────────────
+// Deals are read live from Picnic (no DB cache); this only avoids calling Picnic
+// on every deals page view / week generation. Kept on globalThis because Next
+// bundles each route separately.
+
+const DEALS_TTL_MS = 15 * 60 * 1000;
+
+interface Cached<T> {
+  value: T;
+  at: number;
+}
+
+const dealsCache = ((globalThis as typeof globalThis & {
+  __picnicDeals?: {
+    overview: Cached<PromotionsOverview> | null;
+    overviewInFlight: Promise<Cached<PromotionsOverview>> | null;
+    groups: Map<string, Cached<PromoProduct[]>>;
+  };
+}).__picnicDeals ??= { overview: null, overviewInFlight: null, groups: new Map() });
+
+export interface LiveDeals extends PromotionsOverview {
+  /** When this data was fetched from Picnic (ms since epoch) */
+  fetchedAt: number;
+}
+
+/** Current Picnic promotions; `fresh` bypasses the 15-minute cache. */
+export async function getDeals({ fresh = false } = {}): Promise<LiveDeals> {
+  const cached = dealsCache.overview;
+  if (!fresh && cached && Date.now() - cached.at < DEALS_TTL_MS) {
+    return { ...cached.value, fetchedAt: cached.at };
+  }
+  // Concurrent callers (deals page + generation) share one request
+  dealsCache.overviewInFlight ??= getPromotionsOverview()
+    .then((value) => {
+      const entry = { value, at: Date.now() };
+      dealsCache.overview = entry;
+      // Group contents are part of the same snapshot — start them over too
+      dealsCache.groups.clear();
+      return entry;
+    })
+    .finally(() => {
+      dealsCache.overviewInFlight = null;
+    });
+  const entry = await dealsCache.overviewInFlight;
+  return { ...entry.value, fetchedAt: entry.at };
+}
+
+/** Products of one promotion group, fetched when the user opens it. */
+export async function getDealGroup(groupId: string): Promise<PromoProduct[] | null> {
+  const cached = dealsCache.groups.get(groupId);
+  if (cached && Date.now() - cached.at < DEALS_TTL_MS) return cached.value;
+  const { groups } = await getDeals();
+  const group = groups.find((g) => g.id === groupId);
+  if (!group) return null;
+  const products = await getPromotionGroupProducts(group);
+  dealsCache.groups.set(groupId, { value: products, at: Date.now() });
+  return products;
+}

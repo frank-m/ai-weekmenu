@@ -15,17 +15,26 @@ interface DealItem {
   image_id: string;
   price: number;
   promo_label: string;
-  fetched_at: number;
+}
+
+interface DealGroup {
+  id: string;
+  name: string;
+  label: string;
 }
 
 interface DealsResponse {
-  items: DealItem[];
-  lastRefreshed: number | null;
-  knownPromotionCount: number;
+  items?: DealItem[];
+  groups?: DealGroup[];
+  fetched_at?: number;
+  error?: string;
 }
 
-function formatRelativeTime(unixTs: number): string {
-  const diff = Math.floor(Date.now() / 1000) - unixTs;
+/** Products of an expanded promotion group, loaded on demand */
+type GroupState = { loading: boolean; items: DealItem[]; error?: string };
+
+function formatRelativeTime(ms: number): string {
+  const diff = Math.floor((Date.now() - ms) / 1000);
   if (diff < 60) return "just now";
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
@@ -34,68 +43,77 @@ function formatRelativeTime(unixTs: number): string {
 
 export default function DealsPage() {
   const [items, setItems] = useState<DealItem[]>([]);
-  const [lastRefreshed, setLastRefreshed] = useState<number | null>(null);
-  const [knownPromotionCount, setKnownPromotionCount] = useState(0);
+  const [dealGroups, setDealGroups] = useState<DealGroup[]>([]);
+  const [fetchedAt, setFetchedAt] = useState<number | null>(null);
   const [enabled, setEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [refreshResult, setRefreshResult] = useState<string | null>(null);
-  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [openGroups, setOpenGroups] = useState<Record<string, GroupState>>({});
   const [addingId, setAddingId] = useState<string | null>(null);
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
   const [addError, setAddError] = useState("");
 
-  const loadDeals = useCallback(async () => {
+  const loadDeals = useCallback(async (fresh = false) => {
+    setLoadError(null);
     try {
-      const [dealsRes, settingsRes] = await Promise.all([
-        fetch("/api/picnic/deals"),
-        fetch("/api/settings"),
-      ]);
-      const data: DealsResponse = await dealsRes.json();
-      const settings = await settingsRes.json();
-      setEnabled(settings?.deals_enabled === "true");
+      const settings = await fetch("/api/settings").then((r) => r.json());
+      const isEnabled = settings?.deals_enabled === "true";
+      setEnabled(isEnabled);
+      if (!isEnabled) return;
+
+      const res = await fetch(`/api/picnic/deals${fresh ? "?fresh=1" : ""}`);
+      const data: DealsResponse = await res.json();
+      if (!res.ok || data.error) {
+        if (data.error === "picnic_2fa_required") {
+          window.dispatchEvent(new CustomEvent("picnic:2fa-required"));
+          setLoadError("Picnic needs two-factor verification — Settings will open.");
+        } else {
+          setLoadError("Could not load deals from Picnic. Check your Picnic connection.");
+        }
+        return;
+      }
       setItems(Array.isArray(data.items) ? data.items : []);
-      setLastRefreshed(data.lastRefreshed ?? null);
-      setKnownPromotionCount(data.knownPromotionCount ?? 0);
+      setDealGroups(Array.isArray(data.groups) ? data.groups : []);
+      setFetchedAt(data.fetched_at ?? null);
+      // Group contents belong to the previous snapshot
+      if (fresh) setOpenGroups({});
     } catch {
-      // ignore
+      setLoadError("Could not load deals from Picnic. Check your Picnic connection.");
     }
-    setLoading(false);
   }, []);
 
   useEffect(() => {
-    loadDeals();
+    loadDeals().finally(() => setLoading(false));
   }, [loadDeals]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    setRefreshResult(null);
-    setRefreshFailed(false);
-    try {
-      const res = await fetch("/api/picnic/deals/refresh", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        setRefreshFailed(true);
-        if (data.error === "picnic_2fa_required") {
-          window.dispatchEvent(new CustomEvent("picnic:2fa-required"));
-          setRefreshResult("Picnic needs two-factor verification — Settings will open.");
-        } else {
-          setRefreshResult(`Error: ${data.error || "refresh failed"}`);
-        }
-      } else {
-        const msg = `Found ${data.items_found} deals across ${data.promotions_checked} promotion groups (${data.calls_made} API calls).`;
-        setRefreshResult(
-          data.capped
-            ? `${msg} Call limit reached — refresh again to check remaining promotions.`
-            : msg
-        );
-        await loadDeals();
-      }
-    } catch {
-      setRefreshFailed(true);
-      setRefreshResult("Refresh failed. Check your Picnic connection.");
-    }
+    await loadDeals(true);
     setRefreshing(false);
+  };
+
+  const toggleGroup = async (group: DealGroup) => {
+    if (openGroups[group.id]) {
+      setOpenGroups(({ [group.id]: _closed, ...rest }) => rest);
+      return;
+    }
+    setOpenGroups((prev) => ({ ...prev, [group.id]: { loading: true, items: [] } }));
+    let next: GroupState;
+    try {
+      const res = await fetch(`/api/picnic/deals/groups/${encodeURIComponent(group.id)}`);
+      const data = await res.json();
+      if (data.error === "picnic_2fa_required") {
+        window.dispatchEvent(new CustomEvent("picnic:2fa-required"));
+      }
+      next = res.ok
+        ? { loading: false, items: Array.isArray(data.items) ? data.items : [] }
+        : { loading: false, items: [], error: data.error === "picnic_2fa_required" ? "Picnic needs two-factor verification." : data.error || "Could not load products" };
+    } catch {
+      next = { loading: false, items: [], error: "Could not load products" };
+    }
+    // Ignore if the user collapsed it meanwhile
+    setOpenGroups((prev) => (prev[group.id] ? { ...prev, [group.id]: next } : prev));
   };
 
   const handleAddToCart = async (item: DealItem) => {
@@ -122,6 +140,35 @@ export default function DealsPage() {
       setAddError(`Could not add "${item.name}" to the cart.`);
     }
     setAddingId(null);
+  };
+
+  const renderDealRow = (item: DealItem, showLabel = false) => {
+    const added = addedIds.has(item.picnic_id);
+    return (
+      <div key={item.picnic_id} className="flex items-center gap-3 p-3 sm:p-4">
+        {item.image_id && (
+          <img
+            src={`${PRODUCT_IMAGE_BASE}/${item.image_id}/small.png`}
+            alt={item.name}
+            className="w-12 h-12 object-contain shrink-0"
+          />
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium text-gray-900 truncate">{item.name}</div>
+          <div className="text-xs text-gray-500">
+            &euro;{(item.price / 100).toFixed(2)}
+            {showLabel && item.promo_label && <span className="ml-2 text-orange-600">{item.promo_label}</span>}
+          </div>
+        </div>
+        <Button
+          size="sm"
+          onClick={() => handleAddToCart(item)}
+          disabled={addingId === item.picnic_id || added}
+        >
+          {added ? "Added" : addingId === item.picnic_id ? "Adding..." : "+ Cart"}
+        </Button>
+      </div>
+    );
   };
 
   if (loading) {
@@ -170,38 +217,25 @@ export default function DealsPage() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Deals</h1>
             <p className="text-sm text-gray-500 mt-1">
-              Picnic products currently on sale, used during meal planning.
+              Picnic products currently on sale, read live from Picnic&apos;s promotions page and used during meal planning.
             </p>
           </div>
           <div className="flex flex-col items-end gap-1 shrink-0">
             <Button onClick={handleRefresh} disabled={refreshing} size="md">
-              {refreshing ? "Refreshing..." : "Refresh Deals"}
+              {refreshing ? "Refreshing..." : "Refresh"}
             </Button>
-            {lastRefreshed && (
+            {fetchedAt && (
               <span className="text-xs text-gray-400">
-                Last refreshed {formatRelativeTime(lastRefreshed)}
-              </span>
-            )}
-            {knownPromotionCount > 0 && (
-              <span className="text-xs text-gray-400">
-                {knownPromotionCount} known promotion group
-                {knownPromotionCount !== 1 ? "s" : ""}
+                Updated {formatRelativeTime(fetchedAt)}
               </span>
             )}
           </div>
         </div>
       </div>
 
-      {/* Refresh result message */}
-      {refreshResult && (
-        <div
-          className={`mb-4 p-3 rounded-lg text-sm border ${
-            refreshFailed
-              ? "bg-red-50 border-red-200 text-red-800"
-              : "bg-green-50 border-green-200 text-green-800"
-          }`}
-        >
-          {refreshResult}
+      {loadError && (
+        <div className="mb-4 p-3 rounded-lg text-sm border bg-red-50 border-red-200 text-red-800">
+          {loadError}
         </div>
       )}
 
@@ -212,17 +246,57 @@ export default function DealsPage() {
       )}
 
       {/* Empty state */}
-      {items.length === 0 && (
+      {!loadError && items.length === 0 && dealGroups.length === 0 && (
         <div className="text-center py-16 text-gray-500">
-          <p className="text-lg font-medium mb-2">No deals cached yet</p>
-          <p className="text-sm mb-6">
-            Click &ldquo;Refresh Deals&rdquo; to scan your frequent items for active
-            promotions.
-          </p>
-          <p className="text-xs text-gray-400">
-            Deals are discovered from your Frequent Items and grow over time as
-            more promotion groups are found.
-          </p>
+          <p className="text-lg font-medium mb-2">No deals right now</p>
+          <p className="text-sm">Picnic&apos;s promotions page is empty. Try again later.</p>
+        </div>
+      )}
+
+      {/* Promotions on several products — products load when opened */}
+      {dealGroups.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">
+            Promotions on several products ({dealGroups.length})
+          </h2>
+          <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+            {dealGroups.map((group) => {
+              const state = openGroups[group.id];
+              return (
+                <div key={group.id}>
+                  <button
+                    onClick={() => toggleGroup(group)}
+                    aria-expanded={!!state}
+                    className="w-full flex items-center gap-3 p-3 sm:p-4 text-left hover:bg-gray-50"
+                  >
+                    <span className="flex-1 min-w-0 text-sm font-medium text-gray-900 truncate">
+                      {group.name}
+                    </span>
+                    {group.label && <Badge color="yellow">{group.label}</Badge>}
+                    <span className="text-gray-400 text-xs shrink-0">{state ? "▲" : "▼"}</span>
+                  </button>
+                  {state && (
+                    <div className="px-3 pb-3 sm:px-4">
+                      {state.loading && (
+                        <div className="flex justify-center py-4">
+                          <Spinner />
+                        </div>
+                      )}
+                      {state.error && <p className="text-sm text-red-600 py-2">{state.error}</p>}
+                      {!state.loading && !state.error && state.items.length === 0 && (
+                        <p className="text-sm text-gray-500 py-2">No products found.</p>
+                      )}
+                      {state.items.length > 0 && (
+                        <div className="rounded-lg border border-gray-100 divide-y divide-gray-100">
+                          {state.items.map((item) => renderDealRow(item, true))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -236,42 +310,7 @@ export default function DealsPage() {
             </span>
           </div>
           <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
-            {groupItems.map((item) => {
-              const added = addedIds.has(item.picnic_id);
-              return (
-                <div
-                  key={item.picnic_id}
-                  className="flex items-center gap-3 p-3 sm:p-4"
-                >
-                  {item.image_id && (
-                    <img
-                      src={`${PRODUCT_IMAGE_BASE}/${item.image_id}/small.png`}
-                      alt={item.name}
-                      className="w-12 h-12 object-contain shrink-0"
-                    />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">
-                      {item.name}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      &euro;{(item.price / 100).toFixed(2)}
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    onClick={() => handleAddToCart(item)}
-                    disabled={addingId === item.picnic_id || added}
-                  >
-                    {added
-                      ? "Added"
-                      : addingId === item.picnic_id
-                      ? "Adding..."
-                      : "+ Cart"}
-                  </Button>
-                </div>
-              );
-            })}
+            {groupItems.map((item) => renderDealRow(item))}
           </div>
         </div>
       ))}
