@@ -33,6 +33,7 @@ export async function PUT(request: Request) {
     const allowedKeys = [
       "gemini_api_key",
       "gemini_model",
+      "gemini_matching_model",
       "picnic_username",
       "picnic_password",
       "picnic_country_code",

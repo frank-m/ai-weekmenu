@@ -41,7 +41,8 @@ Create `.env.local` in the project root:
 
 ```
 GEMINI_API_KEY=your-gemini-api-key
-GEMINI_MODEL=gemini-3.0-flash-preview
+GEMINI_MODEL=gemini-3.8-flash
+GEMINI_MATCHING_MODEL=gemini-3.5-flash-lite
 PICNIC_USERNAME=your-picnic-email
 PICNIC_PASSWORD=your-picnic-password
 PICNIC_COUNTRY_CODE=NL
@@ -90,6 +91,7 @@ The app uses Gemini's function calling to create a clean separation between the 
 2. Gemini makes tool calls with simplified Dutch queries (stripping adjectives, quantities, and prep methods)
 3. The app executes each search against the Picnic API and returns the results to Gemini
 4. Gemini evaluates the results, prefers package sizes closest to the needed quantity, retries with different queries if needed, and returns the final ingredient-to-product mapping
+5. Any ingredient Gemini leaves unmatched falls back to a plain Picnic search (first result). These are marked **"Auto-matched · check"** in the week view, since they haven't been vetted; picking another product clears the mark
 
 This multi-turn tool-use loop means the LLM handles the intelligence (query simplification, result evaluation, retry logic) while the Picnic API stays a simple search backend. The same pattern is used for the `mcp-picnic` MCP server configured for development with Claude Code.
 
@@ -136,7 +138,8 @@ No analytics, no telemetry, no third-party tracking.
 | Variable | Description | Default |
 |---|---|---|
 | `GEMINI_API_KEY` | Google Gemini API key | — |
-| `GEMINI_MODEL` | Gemini model to use | `gemini-3.0-flash-preview` |
+| `GEMINI_MODEL` | Gemini model for recipe generation | `gemini-3.8-flash` |
+| `GEMINI_MATCHING_MODEL` | Gemini model for Picnic product matching (token-heavy tool loop) | `gemini-3.5-flash-lite` |
 | `PICNIC_USERNAME` | Picnic account email | — |
 | `PICNIC_PASSWORD` | Picnic account password | — |
 | `PICNIC_COUNTRY_CODE` | Picnic country | `NL` |

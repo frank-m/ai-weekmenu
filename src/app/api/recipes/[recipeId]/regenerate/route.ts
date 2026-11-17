@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { generateRecipes, matchIngredientsWithFallback, getVarietyContext } from "@/lib/gemini";
-import { PicnicTwoFactorRequiredError } from "@/lib/picnic";
+import { PicnicTwoFactorRequiredError, MatchedProduct } from "@/lib/picnic";
 import { Recipe, Week, WeekPreferences, LeftoverItem } from "@/lib/types";
 
 export async function POST(
@@ -146,7 +146,7 @@ export async function POST(
     // Matching failures must not fail the request — the recipe swap is done;
     // the week page shows a banner with a rematch option for the rest.
     let matchingStatus: "ok" | "2fa_required" | "failed" = "ok";
-    let productMap: Record<string, { picnic_id: string; name: string; image_id: string; price: number; unit_quantity: string; quantity?: number } | null> = {};
+    let productMap: Record<string, MatchedProduct | null> = {};
     try {
       productMap = await matchIngredientsWithFallback(uniqueIngredients);
     } catch (err) {
@@ -159,8 +159,8 @@ export async function POST(
       const product = productMap[normalizedName];
       if (product) {
         db.prepare(
-          "INSERT INTO picnic_products (ingredient_id, picnic_id, name, image_id, price, unit_quantity, quantity) VALUES (?, ?, ?, ?, ?, ?, ?)"
-        ).run(ing.id, product.picnic_id, product.name, product.image_id, product.price, product.unit_quantity, product.quantity ?? 1);
+          "INSERT INTO picnic_products (ingredient_id, picnic_id, name, image_id, price, unit_quantity, quantity, auto_matched) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        ).run(ing.id, product.picnic_id, product.name, product.image_id, product.price, product.unit_quantity, product.quantity ?? 1, product.auto_matched ? 1 : 0);
       }
     }
 

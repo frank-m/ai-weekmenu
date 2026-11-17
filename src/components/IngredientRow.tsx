@@ -164,6 +164,14 @@ export default function IngredientRow({
             {product.unit_quantity && (
               <div className="text-xs text-gray-400">{product.unit_quantity}</div>
             )}
+            {!!product.auto_matched && (
+              <div
+                className="text-xs font-medium text-amber-600"
+                title="The AI couldn't match this ingredient, so the first Picnic search result was used. Check it, or search for a different product."
+              >
+                Auto-matched · check
+              </div>
+            )}
             {product.quantity > 1 && (
               <div className="text-xs font-medium text-orange-600">{product.quantity}&times;</div>
             )}

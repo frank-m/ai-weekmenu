@@ -254,6 +254,8 @@ export interface MatchedProduct {
   price: number;
   unit_quantity: string;
   quantity: number;
+  /** Set by matchIngredientsWithFallback when the product came from a plain first-result search */
+  auto_matched?: boolean;
 }
 
 export interface RawSearchResult {

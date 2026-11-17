@@ -58,6 +58,8 @@ export interface PicnicProduct {
   unit_quantity: string;
   quantity: number;
   added_to_cart: boolean;
+  /** Matched by blind first-result search (AI matcher found nothing) — worth checking */
+  auto_matched: boolean;
 }
 
 export interface GeneratedRecipe {

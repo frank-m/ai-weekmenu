@@ -37,12 +37,13 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 2. Optionally reuses recipes from previous weeks or custom recipes
 3. Remaining slots filled by Gemini API (structured JSON, Dutch ingredient names); recent weeks' titles and 👎-rated titles are passed as avoid-lists for variety
 4. Week + recipes + ingredients written in a single transaction (generation happens *before* any DB write, so a Gemini failure leaves no orphan week)
-5. Each unique ingredient searched against Picnic API → best match stored. Matching failures do NOT fail the request — the response includes `picnic_matching: "ok" | "2fa_required" | "failed"`, and the week detail page shows an unmatched-ingredients banner with a "Retry matching" action (POST /api/weeks/[weekId]/rematch)
+5. Each unique ingredient matched via `matchIngredientsWithFallback` (lib/gemini.ts): the Gemini tool-loop matcher first, then a plain first-result `searchProduct` for every ingredient it left null (or all of them if it threw). Fallback matches are stored with `picnic_products.auto_matched = 1` and shown as "Auto-matched · check" in the ingredient row; picking a product manually / swapping a bundle clears the flag. Matching failures do NOT fail the request — the response includes `picnic_matching: "ok" | "2fa_required" | "failed"`, and the week detail page shows an unmatched-ingredients banner with a "Retry matching" action (POST /api/weeks/[weekId]/rematch)
 6. Redirect to week detail
 
 ### Gemini Integration (lib/gemini.ts)
-- Uses `responseMimeType: 'application/json'` + `responseSchema` for guaranteed structured output, `temperature: 1.2` for variety
-- Default model: `gemini-3.0-flash-preview` (configurable in settings)
+- Uses `responseMimeType: 'application/json'` + `responseSchema` for guaranteed structured output; temperature left at the Gemini 3 default (1.0) per Google's guidance — variety comes from the prompt avoid-lists
+- Two models (both configurable in settings / env): `gemini_model` (`GEMINI_MODEL`, default `gemini-3.8-flash`) for recipe generation; `gemini_matching_model` (`GEMINI_MATCHING_MODEL`, default `gemini-3.5-flash-lite`, `thinkingLevel: LOW`) for the `matchIngredientsToProducts` tool loop, which dominates token usage. `testApiKey` uses the Lite default
+- `migrateDeprecatedGeminiModel` (db.ts) clears saved deprecated model IDs on startup so they fall back to the current defaults; extend `DEPRECATED_GEMINI_MODELS` when Google retires models
 - API key: settings DB → `GEMINI_API_KEY` env var fallback
 - Seasonal produce: when `preferences.seasonal !== false`, injects current Dutch season's produce list as a soft preference (see `lib/seasonal.ts`)
 - Variety: `getVarietyContext()` collects the last ~40 recipe titles across weeks (soft avoid) and all 👎-rated titles (hard avoid); regeneration additionally passes `rejected_titles` accumulated client-side per session so repeated regenerations don't bounce back to earlier suggestions
@@ -63,8 +64,8 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - **weeks**: id, title, created_at, num_nights, servings, preferences (JSON)
 - **recipes**: id, week_id (FK, nullable — NULL for custom recipes), title, description, servings, prep_time, instructions, night_number, source_recipe_id (nullable), calories_per_serving, rating (nullable integer: 1=thumbs up, -1=thumbs down, NULL=unrated)
 - **ingredients**: id, recipe_id (FK), name, quantity, is_staple (bool), category
-- **picnic_products**: id, ingredient_id (FK), picnic_id, name, image_id, price (cents), unit_quantity, quantity, added_to_cart (bool)
-- **settings**: key (PK), value — stores gemini_api_key, gemini_model, picnic_username, picnic_password, picnic_country_code, default_num_nights, default_servings, default_calories, week_title_format, exclude_staples_from_budget, deals_enabled; internal keys: picnic_auth_key (encrypted session token), staples_seeded (one-time seed flag)
+- **picnic_products**: id, ingredient_id (FK), picnic_id, name, image_id, price (cents), unit_quantity, quantity, added_to_cart (bool), auto_matched (bool — unvetted first-result fallback match)
+- **settings**: key (PK), value — stores gemini_api_key, gemini_model, gemini_matching_model, picnic_username, picnic_password, picnic_country_code, default_num_nights, default_servings, default_calories, week_title_format, exclude_staples_from_budget, deals_enabled; internal keys: picnic_auth_key (encrypted session token), staples_seeded (one-time seed flag)
 - **frequent_items**: id, picnic_id, name, image_id, price (cents), unit_quantity, quantity
 - **staples**: id, name (unique) — user-editable list of staple pantry ingredients, seeded with defaults exactly once (tracked via `staples_seeded` settings key, so an intentionally emptied list stays empty)
 - **exclusions**: id, name (unique) — user-editable list of ingredients/dishes Gemini must never include in generated recipes
@@ -118,7 +119,8 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 
 ```
 GEMINI_API_KEY=
-GEMINI_MODEL=gemini-3.0-flash-preview
+GEMINI_MODEL=gemini-3.8-flash
+GEMINI_MATCHING_MODEL=gemini-3.5-flash-lite
 PICNIC_USERNAME=
 PICNIC_PASSWORD=
 PICNIC_COUNTRY_CODE=NL

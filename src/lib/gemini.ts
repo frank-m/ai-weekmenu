@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type, Content, FunctionCall } from "@google/genai";
+import { GoogleGenAI, Type, Content, FunctionCall, ThinkingLevel } from "@google/genai";
 import { getSetting, getDb } from "./db";
 import { GeneratedRecipe, WeekPreferences, LeftoverItem } from "./types";
 import { rawSearch, searchProduct, delay, MatchedProduct, PicnicTwoFactorRequiredError } from "./picnic";
@@ -37,11 +37,25 @@ function getApiKey(): string {
   return key;
 }
 
+export const DEFAULT_RECIPE_MODEL = "gemini-3.8-flash";
+export const DEFAULT_MATCHING_MODEL = "gemini-3.5-flash-lite";
+
+// Recipe generation: one structured call where quality matters
 function getModel(): string {
   return (
     getSetting("gemini_model") ||
     process.env.GEMINI_MODEL ||
-    "gemini-3.0-flash-preview"
+    DEFAULT_RECIPE_MODEL
+  );
+}
+
+// Ingredient → Picnic matching: a mechanical tool-calling loop that resends a
+// growing history each iteration, so it dominates token usage — use a cheap model
+function getMatchingModel(): string {
+  return (
+    getSetting("gemini_matching_model") ||
+    process.env.GEMINI_MATCHING_MODEL ||
+    DEFAULT_MATCHING_MODEL
   );
 }
 
@@ -246,9 +260,8 @@ export async function generateRecipes(
     config: {
       responseMimeType: "application/json",
       responseSchema: recipeSchema,
-      // Sample well above the default so repeated runs with the same
-      // preferences don't converge on the same handful of dishes
-      temperature: 1.2,
+      // Temperature left at the Gemini 3 default (1.0) — Google advises against
+      // changing it; variety comes from the avoid-lists in the prompt instead
     },
   });
 
@@ -319,10 +332,12 @@ Format:
     console.log(`[gemini] matchIngredientsToProducts iteration ${i + 1}`);
 
     const response = await ai.models.generateContent({
-      model: getModel(),
+      model: getMatchingModel(),
       contents: history,
       config: {
         tools: [searchPicnicTool],
+        // Thinking tokens are billed as output; matching needs little reasoning
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       },
     });
 
@@ -409,7 +424,9 @@ export async function matchIngredientsWithFallback(
     if (productMap[name]) continue;
     await delay(500);
     try {
-      productMap[name] = await searchProduct(name);
+      const product = await searchProduct(name);
+      // First search result, unvetted — flag it so the UI can ask the user to check
+      productMap[name] = product ? { ...product, auto_matched: true } : null;
     } catch (searchErr) {
       if (searchErr instanceof PicnicTwoFactorRequiredError) throw searchErr;
       productMap[name] = null;
@@ -450,7 +467,7 @@ export async function testApiKey(apiKey: string): Promise<boolean> {
   try {
     const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
-      model: "gemini-3.0-flash-preview",
+      model: DEFAULT_MATCHING_MODEL,
       contents: "Say hello in one word.",
     });
     return !!response.text;

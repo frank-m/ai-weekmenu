@@ -54,7 +54,7 @@ export async function POST(
       const product = productMap[ing.name.toLowerCase().trim()];
       if (product) {
         db.prepare(
-          "INSERT INTO picnic_products (ingredient_id, picnic_id, name, image_id, price, unit_quantity, quantity) VALUES (?, ?, ?, ?, ?, ?, ?)"
+          "INSERT INTO picnic_products (ingredient_id, picnic_id, name, image_id, price, unit_quantity, quantity, auto_matched) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         ).run(
           ing.id,
           product.picnic_id,
@@ -62,7 +62,8 @@ export async function POST(
           product.image_id,
           product.price,
           product.unit_quantity,
-          product.quantity ?? 1
+          product.quantity ?? 1,
+          product.auto_matched ? 1 : 0
         );
         matchedCount++;
       }
