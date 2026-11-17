@@ -9,6 +9,7 @@ import CartSidebar from "@/components/CartSidebar";
 import Spinner from "@/components/ui/Spinner";
 import Badge from "@/components/ui/Badge";
 import BundleModal from "@/components/BundleModal";
+import { newProgressId, useProgress } from "@/lib/use-progress";
 
 export default function WeekDetailPage() {
   const params = useParams();
@@ -34,6 +35,11 @@ export default function WeekDetailPage() {
   const [frequentPromos, setFrequentPromos] = useState<Record<string, string | null>>({});
   const [bundleModalItem, setBundleModalItem] = useState<FrequentItem | null>(null);
   const [rematching, setRematching] = useState(false);
+  // Progress ids of the running regenerate / rematch request (polled for status)
+  const [regenerateProgressId, setRegenerateProgressId] = useState<string | null>(null);
+  const [rematchProgressId, setRematchProgressId] = useState<string | null>(null);
+  const regenerateStatus = useProgress(regenerateProgressId);
+  const rematchStatus = useProgress(rematchProgressId);
   const [rematchError, setRematchError] = useState("");
   // Titles rejected via regenerate this session, per recipe id — sent along so
   // the next regeneration doesn't suggest them again
@@ -154,10 +160,12 @@ export default function WeekDetailPage() {
       }
     }
     setRegeneratingRecipe(recipeId);
+    const progressId = newProgressId();
+    setRegenerateProgressId(progressId);
     try {
       const res = await fetch(`/api/recipes/${recipeId}/regenerate`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-progress-id": progressId },
         body: JSON.stringify({
           rejected_titles: rejectedTitlesRef.current[recipeId] || [],
         }),
@@ -174,13 +182,19 @@ export default function WeekDetailPage() {
       setError("Failed to regenerate recipe");
     }
     setRegeneratingRecipe(null);
+    setRegenerateProgressId(null);
   };
 
   const handleRematch = async () => {
     setRematching(true);
     setRematchError("");
+    const progressId = newProgressId();
+    setRematchProgressId(progressId);
     try {
-      const res = await fetch(`/api/weeks/${weekId}/rematch`, { method: "POST" });
+      const res = await fetch(`/api/weeks/${weekId}/rematch`, {
+        method: "POST",
+        headers: { "x-progress-id": progressId },
+      });
       const data = await res.json();
       if (!res.ok) {
         if (data.error === "picnic_2fa_required") {
@@ -199,6 +213,7 @@ export default function WeekDetailPage() {
       setRematchError("Matching failed");
     }
     setRematching(false);
+    setRematchProgressId(null);
   };
 
   const getFrequentQuantity = (item: FrequentItem) =>
@@ -350,6 +365,7 @@ export default function WeekDetailPage() {
             </p>
             <p className="text-xs text-amber-700 mt-0.5">
               This usually means Picnic wasn&apos;t connected when the menu was created.
+              {rematching && rematchStatus && <span className="block mt-1 text-amber-800">{rematchStatus}</span>}
               {rematchError && <span className="text-red-600"> {rematchError}</span>}
             </p>
           </div>
@@ -377,6 +393,7 @@ export default function WeekDetailPage() {
               leftovers={leftovers}
               onRegenerate={handleRegenerate}
               regenerating={regeneratingRecipe === recipe.id}
+              regenerateStatus={regeneratingRecipe === recipe.id ? regenerateStatus : null}
               onRatingChange={() => {}}
             />
           ))}

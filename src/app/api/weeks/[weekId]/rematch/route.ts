@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { matchIngredientsWithFallback } from "@/lib/gemini";
 import { PicnicTwoFactorRequiredError } from "@/lib/picnic";
+import { progressReporter } from "@/lib/progress";
 
 /**
  * Retries Picnic matching for all ingredients of a week that have no matched
@@ -9,9 +10,10 @@ import { PicnicTwoFactorRequiredError } from "@/lib/picnic";
  * disconnected.
  */
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: { weekId: string } }
 ) {
+  const report = progressReporter(request);
   try {
     const db = getDb();
     const weekId = parseInt(params.weekId);
@@ -47,7 +49,7 @@ export async function POST(
       ([name, quantity]) => ({ name, quantity })
     );
 
-    const productMap = await matchIngredientsWithFallback(uniqueIngredients);
+    const productMap = await matchIngredientsWithFallback(uniqueIngredients, { report });
 
     let matchedCount = 0;
     for (const ing of unmatched) {

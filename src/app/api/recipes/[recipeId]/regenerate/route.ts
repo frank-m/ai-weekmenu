@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { generateRecipes, matchIngredientsWithFallback, getVarietyContext } from "@/lib/gemini";
 import { PicnicTwoFactorRequiredError, MatchedProduct } from "@/lib/picnic";
+import { progressReporter } from "@/lib/progress";
 import { Recipe, Week, WeekPreferences, LeftoverItem } from "@/lib/types";
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ recipeId: string }> }
 ) {
+  const report = progressReporter(request);
   try {
     const { recipeId } = await params;
     const db = getDb();
@@ -88,7 +90,8 @@ export async function POST(
       filteredPreferences,
       siblingTitles,
       recipe.title,
-      variety
+      variety,
+      { report }
     );
     if (!generated.length) {
       return NextResponse.json({ error: "Failed to generate recipe" }, { status: 500 });
@@ -148,7 +151,7 @@ export async function POST(
     let matchingStatus: "ok" | "2fa_required" | "failed" = "ok";
     let productMap: Record<string, MatchedProduct | null> = {};
     try {
-      productMap = await matchIngredientsWithFallback(uniqueIngredients);
+      productMap = await matchIngredientsWithFallback(uniqueIngredients, { report });
     } catch (err) {
       matchingStatus = err instanceof PicnicTwoFactorRequiredError ? "2fa_required" : "failed";
       console.error("[regenerate] Picnic matching skipped:", err);

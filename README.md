@@ -9,6 +9,7 @@ Note: This app was fully vibecoded and is not meant to be ran in a production sc
 ## Features
 
 - **AI recipe generation** — Gemini generates dinner recipes with Dutch ingredient names, respecting cuisine style, budget, and health preferences
+- **Model fallback** — when Gemini is overloaded (503 "high demand"), the app retries once and then switches to another Gemini model, telling you in the loading indicator
 - **Picnic product matching** — each ingredient is automatically searched and matched to a Picnic product with price and image
 - **Cart integration** — add matched products to your Picnic cart individually or in bulk
 - **Custom recipes** — create your own recipes with ingredients and Picnic product matching, reuse them in any week

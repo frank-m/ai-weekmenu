@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Button from "./ui/Button";
 import NumberStepper from "./ui/NumberStepper";
 import Spinner from "./ui/Spinner";
+import { newProgressId, useProgress } from "@/lib/use-progress";
 import PreviousRecipePicker from "./PreviousRecipePicker";
 import { LeftoverItem } from "@/lib/types";
 import { getCurrentSeason, SEASON_LABELS, SEASONAL_PRODUCE } from "@/lib/seasonal";
@@ -49,6 +50,8 @@ export default function CreateWizard() {
   const [leftovers, setLeftovers] = useState<LeftoverItem[]>([]);
   const [reusedIds, setReusedIds] = useState<number[]>([]);
   const [creating, setCreating] = useState(false);
+  const [progressId, setProgressId] = useState<string | null>(null);
+  const progress = useProgress(progressId);
   const [error, setError] = useState("");
   useEffect(() => {
     fetch("/api/settings")
@@ -78,10 +81,12 @@ export default function CreateWizard() {
   const handleCreate = async () => {
     setCreating(true);
     setError("");
+    const id = newProgressId();
+    setProgressId(id);
     try {
       const res = await fetch("/api/weeks", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-progress-id": id },
         body: JSON.stringify({
           title: title || defaultTitle,
           num_nights: numNights,
@@ -108,6 +113,7 @@ export default function CreateWizard() {
           setError(data.error || "Failed to create week");
         }
         setCreating(false);
+        setProgressId(null);
         return;
       }
       // Week was created; if matching was skipped the detail page shows a
@@ -119,6 +125,7 @@ export default function CreateWizard() {
     } catch {
       setError("Failed to create week");
       setCreating(false);
+      setProgressId(null);
     }
   };
 
@@ -129,8 +136,8 @@ export default function CreateWizard() {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-4">
         <Spinner size="lg" />
-        <p className="text-gray-600">
-          Generating recipes and matching products...
+        <p className="text-gray-600 text-center" aria-live="polite">
+          {progress ?? "Generating recipes and matching products..."}
         </p>
         <p className="text-sm text-gray-400">This may take a minute</p>
       </div>

@@ -1,4 +1,12 @@
-import { GoogleGenAI, Type, Content, FunctionCall, ThinkingLevel } from "@google/genai";
+import { GoogleGenAI, Type, Content, FunctionCall, ThinkingLevel, ApiError } from "@google/genai";
+import {
+  DEFAULT_RECIPE_MODEL,
+  DEFAULT_MATCHING_MODEL,
+  RECIPE_FALLBACK_CHAIN,
+  MATCHING_FALLBACK_CHAIN,
+  modelLabel,
+} from "./gemini-models";
+import type { ProgressReporter } from "./progress";
 import { getSetting, getDb } from "./db";
 import { GeneratedRecipe, WeekPreferences, LeftoverItem } from "./types";
 import { rawSearch, searchProduct, delay, MatchedProduct, PicnicTwoFactorRequiredError } from "./picnic";
@@ -37,8 +45,73 @@ function getApiKey(): string {
   return key;
 }
 
-export const DEFAULT_RECIPE_MODEL = "gemini-3.8-flash";
-export const DEFAULT_MATCHING_MODEL = "gemini-3.5-flash-lite";
+export { DEFAULT_RECIPE_MODEL, DEFAULT_MATCHING_MODEL };
+
+export interface GeminiCallOptions {
+  /** Progress messages for the client's loading indicator */
+  report?: ProgressReporter;
+}
+
+/** Gemini is overloaded or rate limited — worth retrying / another model. */
+function isOverloaded(err: unknown): boolean {
+  if (err instanceof ApiError && [429, 500, 503, 504].includes(err.status)) return true;
+  return (
+    err instanceof Error &&
+    /UNAVAILABLE|RESOURCE_EXHAUSTED|overloaded|high demand/i.test(err.message)
+  );
+}
+
+/**
+ * Runs Gemini calls against a model chain: the configured model first, then the
+ * fallbacks. On an overload error it retries the configured model once after a
+ * short pause, then moves down the chain — and stays on the model that worked,
+ * so a multi-call loop (matching) doesn't keep hitting the busy one.
+ */
+export class ModelRunner {
+  private index = 0;
+  private readonly models: string[];
+
+  constructor(
+    primary: string,
+    fallbacks: string[],
+    private readonly report: ProgressReporter
+  ) {
+    this.models = [primary, ...fallbacks.filter((m) => m !== primary)];
+  }
+
+  get model(): string {
+    return this.models[this.index];
+  }
+
+  async run<T>(fn: (model: string) => Promise<T>): Promise<T> {
+    // Only the configured model gets a same-model retry; fallbacks are tried once
+    let retried = this.index > 0;
+    for (;;) {
+      const model = this.models[this.index];
+      try {
+        return await fn(model);
+      } catch (err) {
+        if (!isOverloaded(err)) throw err;
+        console.warn(`[gemini] ${model} unavailable:`, err instanceof Error ? err.message : err);
+        if (!retried) {
+          retried = true;
+          this.report(`${modelLabel(model)} is busy, retrying…`);
+          await delay(2000);
+          continue;
+        }
+        const next = this.models[this.index + 1];
+        if (!next) {
+          throw new Error(
+            "All Gemini models are busy right now. Spikes in demand are usually temporary, so please try again in a few minutes."
+          );
+        }
+        this.report(`${modelLabel(model)} is busy, switching to ${modelLabel(next)}…`);
+        this.index++;
+        retried = true;
+      }
+    }
+  }
+}
 
 // Recipe generation: one structured call where quality matters
 function getModel(): string {
@@ -249,21 +322,26 @@ export async function generateRecipes(
   preferences: WeekPreferences,
   existingTitles: string[] = [],
   replacingTitle?: string,
-  variety?: VarietyContext
+  variety?: VarietyContext,
+  { report = () => {} }: GeminiCallOptions = {}
 ): Promise<GeneratedRecipe[]> {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const prompt = buildPrompt(numRecipes, servings, preferences, existingTitles, replacingTitle, variety);
 
-  const response = await ai.models.generateContent({
-    model: getModel(),
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: recipeSchema,
-      // Temperature left at the Gemini 3 default (1.0) — Google advises against
-      // changing it; variety comes from the avoid-lists in the prompt instead
-    },
-  });
+  const runner = new ModelRunner(getModel(), RECIPE_FALLBACK_CHAIN, report);
+  report(numRecipes === 1 ? "Generating a new recipe…" : `Generating ${numRecipes} recipes…`);
+  const response = await runner.run((model) =>
+    ai.models.generateContent({
+      model,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: recipeSchema,
+        // Temperature left at the Gemini 3 default (1.0) — Google advises against
+        // changing it; variety comes from the avoid-lists in the prompt instead
+      },
+    })
+  );
 
   const text = response.text;
   if (!text) {
@@ -295,9 +373,16 @@ const searchPicnicTool = {
 };
 
 export async function matchIngredientsToProducts(
-  ingredients: { name: string; quantity: string }[]
+  ingredients: { name: string; quantity: string }[],
+  { report = () => {} }: GeminiCallOptions = {}
 ): Promise<Record<string, MatchedProduct | null>> {
   if (ingredients.length === 0) return {};
+  const runner = new ModelRunner(getMatchingModel(), MATCHING_FALLBACK_CHAIN, report);
+  report(
+    ingredients.length === 1
+      ? "Finding a matching Picnic product…"
+      : `Matching ${ingredients.length} ingredients to Picnic products…`
+  );
 
   const ingredientNames = ingredients.map((i) => i.name);
 
@@ -333,15 +418,17 @@ Format:
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     console.log(`[gemini] matchIngredientsToProducts iteration ${i + 1}`);
 
-    const response = await ai.models.generateContent({
-      model: getMatchingModel(),
-      contents: history,
-      config: {
-        tools: [searchPicnicTool],
-        // Thinking tokens are billed as output; matching needs little reasoning
-        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-      },
-    });
+    const response = await runner.run((model) =>
+      ai.models.generateContent({
+        model,
+        contents: history,
+        config: {
+          tools: [searchPicnicTool],
+          // Thinking tokens are billed as output; matching needs little reasoning
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+        },
+      })
+    );
 
     const candidate = response.candidates?.[0];
     if (!candidate?.content?.parts) {
@@ -410,11 +497,13 @@ Format:
  * name usually finds those, which is exactly what the manual search box does.
  */
 export async function matchIngredientsWithFallback(
-  ingredients: { name: string; quantity: string }[]
+  ingredients: { name: string; quantity: string }[],
+  options: GeminiCallOptions = {}
 ): Promise<Record<string, MatchedProduct | null>> {
+  const report = options.report ?? (() => {});
   let productMap: Record<string, MatchedProduct | null> = {};
   try {
-    productMap = await matchIngredientsToProducts(ingredients);
+    productMap = await matchIngredientsToProducts(ingredients, options);
   } catch (err) {
     // Auth problems affect every search — surface, don't paper over.
     if (err instanceof PicnicTwoFactorRequiredError) throw err;
@@ -422,6 +511,14 @@ export async function matchIngredientsWithFallback(
     productMap = {};
   }
 
+  const unmatched = ingredients.filter(({ name }) => !productMap[name]).length;
+  if (unmatched > 0) {
+    report(
+      unmatched === 1
+        ? "Searching Picnic directly for 1 unmatched ingredient…"
+        : `Searching Picnic directly for ${unmatched} unmatched ingredients…`
+    );
+  }
   for (const { name } of ingredients) {
     if (productMap[name]) continue;
     await delay(500);

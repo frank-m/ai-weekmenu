@@ -3,14 +3,9 @@
 import { useState, useEffect } from "react";
 import Button from "./ui/Button";
 import Spinner from "./ui/Spinner";
+import { GEMINI_MODELS, DEFAULT_RECIPE_MODEL, DEFAULT_MATCHING_MODEL } from "@/lib/gemini-models";
 
 // Shared by both model pickers; a saved value not listed here is still shown as "(current)"
-const GEMINI_MODELS: { value: string; label: string }[] = [
-  { value: "gemini-3.8-flash", label: "Gemini 3.8 Flash" },
-  { value: "gemini-3.6-flash", label: "Gemini 3.6 Flash" },
-  { value: "gemini-3.5-flash-lite", label: "Gemini 3.5 Flash-Lite (cheapest)" },
-];
-
 function ModelSelect({
   value,
   onChange,
@@ -43,8 +38,8 @@ interface SettingsModalProps {
 export default function SettingsModal({ onClose }: SettingsModalProps) {
   const [settings, setSettings] = useState({
     gemini_api_key: "",
-    gemini_model: "gemini-3.8-flash",
-    gemini_matching_model: "gemini-3.5-flash-lite",
+    gemini_model: DEFAULT_RECIPE_MODEL,
+    gemini_matching_model: DEFAULT_MATCHING_MODEL,
     picnic_username: "",
     picnic_password: "",
     picnic_country_code: "NL",
@@ -258,7 +253,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                     }
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Matching ingredients to Picnic products uses the most tokens; a Flash-Lite model keeps it cheap.
+                    Matching ingredients to Picnic products uses the most tokens; a Flash-Lite model keeps it cheap. If a model is busy, the app automatically falls back to another one.
                   </p>
                 </div>
               </div>
