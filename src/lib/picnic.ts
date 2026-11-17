@@ -286,8 +286,13 @@ export interface RawSearchResult {
   unit_quantity: string;
   /** Price per kg / litre / piece, e.g. "€1,26/l" — for comparing products of different sizes */
   unit_price: string | null;
+  /** The same as a number: cents per `unit_price_per` — what the matcher compares */
+  unit_price_cents: number | null;
+  unit_price_per: "kg" | "l" | "stuk" | null;
   /** Active promotion label on the tile, e.g. "1+1 gratis" */
   promo_label: string | null;
+  /** Package price before a direct discount (cents); set only when `price` is already discounted */
+  price_before_discount: number | null;
 }
 
 export interface CartItem {
@@ -351,7 +356,12 @@ function tileToRaw(tile: ProductTile): RawSearchResult {
     unit_quantity: tile.unitQuantity,
     // Computed from price + size so every result uses the same format
     unit_price: formatComparisonPrice(tile.comparisonPrice) ?? tile.unitPrice,
+    unit_price_cents: tile.comparisonPrice?.price ?? null,
+    unit_price_per: tile.comparisonPrice
+      ? (COMPARISON_UNIT_LABEL[tile.comparisonPrice.unit] as "kg" | "l" | "stuk")
+      : null,
     promo_label: tilePromoLabel(tile),
+    price_before_discount: tile.originalPrice,
   };
 }
 

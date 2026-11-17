@@ -416,7 +416,7 @@ const searchPicnicTool = {
     {
       name: "search_picnic",
       description:
-        "Search the Picnic grocery delivery catalog. Returns up to 10 matching products with id, name, price (cents, per package), image_id, unit_quantity, unit_price (price per kg / l / stuk, for comparing sizes and brands) and promo_label (active promotion, if any).",
+        "Search the Picnic grocery delivery catalog. Returns up to 10 matching products with id, name, price (cents, per package, after any direct discount), image_id, unit_quantity, unit_price + unit_price_cents/unit_price_per (price per kg / l / stuk, for comparing sizes and brands), promo_label (active promotion, if any) and price_before_discount (old price when price is discounted, else null).",
       parameters: {
         type: Type.OBJECT,
         properties: {
@@ -460,7 +460,11 @@ For each ingredient below, use the search_picnic tool to find the best matching 
 - You may search for multiple ingredients in parallel
 - When multiple results differ only by package size, prefer the product whose unit_quantity most closely matches the needed quantity shown in parentheses
 - Results are listed roughly in order of relevance; products the household bought before come first — use that only as a tie-breaker between similarly priced options
-- Pick the CHEAPEST suitable product: among the results that are the right ingredient in a usable form, choose the one with the lowest unit_price (house brands like "Picnic" are fine). Products on promotion (promo_label) count at their discounted value. Only choose a more expensive one when the cheaper ones don't fit the recipe (wrong product, wrong form, or a package far larger than needed)
+- Pick the CHEAPEST suitable product: among the results that are the right ingredient in a usable form, choose the one with the lowest unit_price_cents (cents per unit_price_per: kg, l or stuk — only compare products with the same unit; house brands like "Picnic" are fine). Only choose a more expensive one when the cheaper ones don't fit the recipe (wrong product, wrong form, or a package far larger than needed)
+- Promotions do NOT make a product cheaper by themselves — compare unit_price:
+  - Direct discounts ("25% korting", "€0,50 korting") are already included in price and unit_price (price_before_discount shows the old price). Don't count them again
+  - Multi-buy deals ("1+1 gratis", "2e halve prijs", "2 voor €5", "3 halen 2 betalen") only lower the price when the recipe needs that many packages anyway. For one package, compare at the normal unit_price
+  - A premium brand on promotion is often still more expensive than the house brand: if so, pick the house brand
 
 Ingredients to match:
 ${ingredients.map((ing, i) => `${i + 1}. ${ing.name}${ing.quantity ? ` (need ${ing.quantity})` : ""}`).join("\n")}
