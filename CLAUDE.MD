@@ -73,8 +73,6 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - **frequent_items**: id, picnic_id, name, image_id, price (cents), unit_quantity, quantity
 - **staples**: id, name (unique) — user-editable list of staple pantry ingredients, seeded with defaults exactly once (tracked via `staples_seeded` settings key, so an intentionally emptied list stays empty)
 - **exclusions**: id, name (unique) — user-editable list of ingredients/dishes Gemini must never include in generated recipes
-- **sale_cache**: picnic_id (PK), name, image_id, price (cents), promo_label, fetched_at (unix ts) — cached on-sale products; stale after 48h
-- **known_promotions**: promotion_id (PK), seed_picnic_id, label, first_seen_at, last_seen_at, active — multi-product promotion groups seen on the promotions page; `active` = listed on the last refresh; `last_seen_at` orders groups when the per-run cap applies
 
 ### API Routes
 - `api/settings` — GET/PUT settings (GET masks secrets and strips `picnic_auth_key`)
@@ -94,8 +92,8 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - `api/picnic/cart/bulk` — POST add multiple items
 - `api/picnic/cart/[productId]` — DELETE remove from cart
 - `api/picnic/promos` — POST batch promo label lookup (fetched live via `catalog.getProduct`)
-- `api/picnic/deals` — GET cached deals (sale_cache, max 48h stale)
-- `api/picnic/deals/refresh` — POST refresh from the promotions page + its promotion groups; replaces sale_cache, upserts known_promotions
+- `api/picnic/deals` — GET live deals from the promotions page: `{items, groups, fetched_at}` (15 min in-memory cache; `?fresh=1` bypasses it)
+- `api/picnic/deals/groups/[groupId]` — GET products of one multi-product promotion group (loaded when the user opens it)
 - `api/frequent-items` — GET list, POST add, PUT update quantity, DELETE remove
 - `api/staples` — GET list, POST add, DELETE remove staple ingredients
 - `api/exclusions` — GET list, POST add, DELETE remove excluded ingredients/dishes
@@ -113,9 +111,9 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - Ingredient rows show: name + quantity | matched Picnic product + price + image | add-to-cart button (stacked vertically on mobile, horizontal on sm+)
 - Staple classification uses a user-editable DB list (`staples` table) instead of a hardcoded array; the list is included in the Gemini prompt
 - Calorie targets are configurable: `default_calories` setting + per-week portion size preference (light/normal/large)
-- Deals (experimental, `deals_enabled` setting): read from Picnic's promotions page (`catalog.getPromotions()`, the app's "Acties" tab) — tiles with a `PROMO` label go into `sale_cache`; multi-product promotion groups are expanded with `catalog.getPromotionGroup()` (max 40 calls per run, 500ms delay, most-recently-seen groups first)
-  - Each refresh replaces `sale_cache`: the promotions page is the complete list, so anything not on it has ended
-  - Active deals injected into Gemini prompt only when `deals_enabled=true`
+- Deals (experimental, `deals_enabled` setting): read **live** from Picnic's promotions page (`catalog.getPromotions()`, the app's "Acties" tab) via `getDeals()` in lib/picnic.ts — no DB cache, just a 15-minute in-memory cache on `globalThis` (concurrent callers share one request). Tiles with a `PROMO` label are the page's deals; multi-product promotion groups ("Korting op Alpro") are listed by name + label and their products fetched only when opened on the Deals page (`getDealGroup`, also cached 15 min)
+  - Gemini prompt (only when `deals_enabled=true`): up to 150 page deals plus one line per promotion group; fetched at generation time and skipped (not failed) when Picnic is unreachable or needs 2FA
+  - Old installs still have the unused `sale_cache` / `known_promotions` tables from the former DB cache
 
 ## Environment Variables (.env.local)
 

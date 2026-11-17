@@ -1,44 +1,27 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getDeals, PicnicTwoFactorRequiredError } from "@/lib/picnic";
 
-const STALE_SECONDS = 48 * 60 * 60; // 48 hours
+export const dynamic = "force-dynamic";
 
-interface SaleCacheRow {
-  picnic_id: string;
-  name: string;
-  image_id: string;
-  price: number;
-  promo_label: string;
-  fetched_at: number;
-}
-
-export async function GET() {
+/**
+ * Current Picnic promotions, read live from the promotions page (cached in
+ * memory for 15 minutes; `?fresh=1` bypasses that). Returns the page's own
+ * deals plus the multi-product promotion groups, whose products are loaded on
+ * demand via /api/picnic/deals/groups/[groupId].
+ */
+export async function GET(request: Request) {
   try {
-    const db = getDb();
-    const cutoff = Math.floor(Date.now() / 1000) - STALE_SECONDS;
-
-    const items = db
-      .prepare(
-        `SELECT picnic_id, name, image_id, price, promo_label, fetched_at
-         FROM sale_cache
-         WHERE fetched_at > ?
-         ORDER BY promo_label ASC, name ASC`
-      )
-      .all(cutoff) as SaleCacheRow[];
-
-    const lastRefreshed =
-      (
-        db
-          .prepare("SELECT MAX(fetched_at) as ts FROM sale_cache")
-          .get() as { ts: number | null }
-      ).ts ?? null;
-
-    const knownCount = (
-      db.prepare("SELECT COUNT(*) as n FROM known_promotions").get() as { n: number }
-    ).n;
-
-    return NextResponse.json({ items, lastRefreshed, knownPromotionCount: knownCount });
+    const fresh = new URL(request.url).searchParams.get("fresh") === "1";
+    const deals = await getDeals({ fresh });
+    return NextResponse.json({
+      items: deals.products,
+      groups: deals.groups,
+      fetched_at: deals.fetchedAt,
+    });
   } catch (err) {
+    if (err instanceof PicnicTwoFactorRequiredError) {
+      return NextResponse.json({ error: "picnic_2fa_required" }, { status: 401 });
+    }
     console.error("[deals] error:", err);
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

@@ -9,29 +9,27 @@ import {
 import type { ProgressReporter } from "./progress";
 import { getSetting, getDb } from "./db";
 import { GeneratedRecipe, WeekPreferences, LeftoverItem } from "./types";
-import { rawSearch, searchProduct, delay, MatchedProduct, PicnicTwoFactorRequiredError } from "./picnic";
+import { rawSearch, searchProduct, delay, MatchedProduct, PicnicTwoFactorRequiredError, getDeals, LiveDeals } from "./picnic";
 import { getStaples } from "./staples";
 import { getExclusions } from "./exclusions";
 import { getSeasonalProduce, SEASON_LABELS } from "./seasonal";
 
-const DEALS_STALE_SECONDS = 48 * 60 * 60;
+// Keeps the prompt a reasonable size; groups are summarised in one line each
+const MAX_PROMPT_DEALS = 150;
 
-interface SaleCacheRow {
-  name: string;
-  promo_label: string;
-  price: number;
-}
-
-function getCurrentDeals(): SaleCacheRow[] {
+/**
+ * Live Picnic deals for the prompt when the Deals feature is on. Never fails
+ * generation: if Picnic is unreachable (or needs 2FA) the menu is planned
+ * without deals.
+ */
+async function getDealsForPrompt(report: ProgressReporter): Promise<LiveDeals | null> {
+  if (getSetting("deals_enabled") !== "true") return null;
+  report("Checking current Picnic deals…");
   try {
-    const cutoff = Math.floor(Date.now() / 1000) - DEALS_STALE_SECONDS;
-    return getDb()
-      .prepare(
-        "SELECT name, promo_label, price FROM sale_cache WHERE fetched_at > ? ORDER BY promo_label ASC, name ASC"
-      )
-      .all(cutoff) as SaleCacheRow[];
-  } catch {
-    return [];
+    return await getDeals();
+  } catch (err) {
+    console.warn("[gemini] deals unavailable, generating without them:", err instanceof Error ? err.message : err);
+    return null;
   }
 }
 
@@ -258,7 +256,8 @@ function buildPrompt(
   preferences: WeekPreferences,
   existingTitles: string[] = [],
   replacingTitle?: string,
-  variety?: VarietyContext
+  variety?: VarietyContext,
+  deals?: LiveDeals | null
 ): string {
   const calorieMap: Record<string, number> = {
     light: 400,
@@ -332,13 +331,13 @@ function buildPrompt(
     prompt += `\nRecently cooked in previous weeks — avoid repeating these and aim for clearly different dishes, proteins, and cuisines to keep menus varied: ${variety.recentTitles.join(", ")}\n`;
   }
 
-  if (getSetting("deals_enabled") === "true") {
-    const deals = getCurrentDeals();
-    if (deals.length > 0) {
-      prompt += `\nCurrently on sale at Picnic (prefer these ingredients when suitable for the menu):\n`;
-      for (const d of deals) {
-        prompt += `- ${d.name}: ${d.promo_label} (€${(d.price / 100).toFixed(2)})\n`;
-      }
+  if (deals && (deals.products.length > 0 || deals.groups.length > 0)) {
+    prompt += `\nCurrently on sale at Picnic (prefer these ingredients when suitable for the menu):\n`;
+    for (const d of deals.products.slice(0, MAX_PROMPT_DEALS)) {
+      prompt += `- ${d.name}: ${d.promo_label} (€${(d.price / 100).toFixed(2)})\n`;
+    }
+    for (const g of deals.groups) {
+      prompt += `- ${g.name}${g.label ? `: ${g.label}` : ""} (several products)\n`;
     }
   }
 
@@ -372,7 +371,8 @@ export async function generateRecipes(
   { report = () => {} }: GeminiCallOptions = {}
 ): Promise<GeneratedRecipe[]> {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
-  const prompt = buildPrompt(numRecipes, servings, preferences, existingTitles, replacingTitle, variety);
+  const deals = await getDealsForPrompt(report);
+  const prompt = buildPrompt(numRecipes, servings, preferences, existingTitles, replacingTitle, variety, deals);
 
   const runner = new ModelRunner(getModel(), RECIPE_FALLBACK_CHAIN, report, RECIPE_RETRY);
   report(numRecipes === 1 ? "Generating a new recipe…" : `Generating ${numRecipes} recipes…`);
