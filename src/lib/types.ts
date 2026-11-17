@@ -117,5 +117,7 @@ export interface BundleOption {
   image_id: string;
   price: number;       // cents
   unit_quantity: string;
-  promo_label?: string; // e.g. "2e halve prijs"
+  /** Price tier: the per-unit `price` applies from this many units */
+  min_quantity: number;
+  promo_label?: string; // e.g. "Bespaar €0,40"
 }

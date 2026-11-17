@@ -82,6 +82,8 @@ export default function IngredientRow({
           image_id: bundle.image_id,
           price: bundle.price,
           unit_quantity: bundle.unit_quantity,
+          // A tier only applies from its minimum — never lower what the recipe needs
+          quantity: Math.max(bundle.min_quantity, product?.quantity ?? 1),
         }),
       });
       if (!res.ok) {
@@ -256,7 +258,7 @@ export default function IngredientRow({
         <BundleModal
           productId={product.picnic_id}
           productName={product.name}
-          currentBundleId={product.picnic_id}
+          currentQuantity={product.quantity || 1}
           onClose={() => setShowBundleModal(false)}
           onSelect={handleBundleSelect}
         />

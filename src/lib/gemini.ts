@@ -311,6 +311,8 @@ For each ingredient below, use the search_picnic tool to find the best matching 
 - If no good match is found, try a different/simpler query
 - You may search for multiple ingredients in parallel
 - When multiple results differ only by package size, prefer the product whose unit_quantity most closely matches the needed quantity shown in parentheses
+- Results are listed roughly in order of relevance; products the household bought before come first, so prefer those when they fit
+- Among equally suitable products, prefer the lower unit_price (price per kg/l/piece) or one with a promo_label
 
 Ingredients to match:
 ${ingredients.map((ing, i) => `${i + 1}. ${ing.name}${ing.quantity ? ` (need ${ing.quantity})` : ""}`).join("\n")}

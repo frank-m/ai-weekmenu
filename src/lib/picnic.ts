@@ -1,13 +1,21 @@
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const PicnicClient = require("picnic-api");
+import PicnicClient from "picnic-api";
 import { getSetting, setSetting } from "./db";
+import type { BundleOption, PromoProduct } from "./types";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let client: any = null;
+type Client = InstanceType<typeof PicnicClient>;
+type ProductTile = PicnicClient.Types.catalog.ProductTile;
+type CountryCode = PicnicClient.Types.common.CountryCode;
+
+let client: Client | null = null;
 let authenticated = false;
 let needsTwoFactor = false;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let loginInFlight: Promise<any> | null = null;
+let loginInFlight: Promise<Client> | null = null;
+
+/** HTTP status of a Picnic API error, or null for anything else. */
+function picnicStatus(err: unknown): number | null {
+  if (PicnicClient.isPicnicApiError(err)) return err.status;
+  return null;
+}
 
 export class PicnicTwoFactorRequiredError extends Error {
   constructor() {
@@ -24,15 +32,13 @@ function getCredentials() {
   return {
     username: getSetting("picnic_username") || process.env.PICNIC_USERNAME || "",
     password: getSetting("picnic_password") || process.env.PICNIC_PASSWORD || "",
-    countryCode:
-      getSetting("picnic_country_code") ||
+    countryCode: (getSetting("picnic_country_code") ||
       process.env.PICNIC_COUNTRY_CODE ||
-      "NL",
+      "NL") as CountryCode,
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function getPicnicClient(): Promise<any> {
+export async function getPicnicClient(): Promise<Client> {
   const creds = getCredentials();
   console.log("[picnic] getPicnicClient called, authenticated:", authenticated, "needsTwoFactor:", needsTwoFactor, "hasClient:", !!client);
   console.log("[picnic] credentials present — username:", !!creds.username, "password:", !!creds.password, "country:", creds.countryCode);
@@ -73,19 +79,13 @@ export async function getPicnicClient(): Promise<any> {
   return client;
 }
 
-async function doLogin(creds: {
-  username: string;
-  password: string;
-  countryCode: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-}): Promise<any> {
+async function doLogin(creds: ReturnType<typeof getCredentials>): Promise<Client> {
   console.log("[picnic] creating new PicnicClient and logging in...");
-  client = new PicnicClient({
-    countryCode: creds.countryCode,
-  });
+  const fresh = new PicnicClient({ countryCode: creds.countryCode });
+  client = fresh;
   try {
-    const loginResult = await client.login(creds.username, creds.password);
-    if (loginResult?.second_factor_authentication_required) {
+    const loginResult = await fresh.auth.login(creds.username, creds.password);
+    if (loginResult.secondFactorAuthenticationRequired) {
       console.log("[picnic] login requires 2FA");
       needsTwoFactor = true;
       authenticated = false;
@@ -94,9 +94,9 @@ async function doLogin(creds: {
     authenticated = true;
     needsTwoFactor = false;
     // Persist auth key so it survives module reloads
-    setSetting("picnic_auth_key", client.authKey);
+    setSetting("picnic_auth_key", fresh.authKey ?? "");
     console.log("[picnic] login successful");
-    return client;
+    return fresh;
   } catch (err) {
     if (err instanceof PicnicTwoFactorRequiredError) throw err;
     console.error("[picnic] login failed:", err);
@@ -111,15 +111,12 @@ async function doLogin(creds: {
  * Runs a Picnic call, resetting the client and retrying once on a 401
  * (expired/invalid session — common when a stale stored auth key was restored).
  */
-async function withAuthRetry<T>(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  fn: (picnic: any) => Promise<T>
-): Promise<T> {
+async function withAuthRetry<T>(fn: (picnic: Client) => Promise<T>): Promise<T> {
   const picnic = await getPicnicClient();
   try {
     return await fn(picnic);
   } catch (err: unknown) {
-    if (err instanceof Error && err.message.includes("401")) {
+    if (picnicStatus(err) === 401) {
       console.warn("[picnic] 401 — resetting session and retrying once");
       resetPicnicClient();
       const retryClient = await getPicnicClient();
@@ -143,7 +140,7 @@ export interface PicnicConnectionState {
  */
 export async function checkPicnicConnection(): Promise<PicnicConnectionState> {
   try {
-    await withAuthRetry((picnic) => picnic.getUserDetails());
+    await withAuthRetry((picnic) => picnic.user.getUser());
     return { ...getPicnicAuthState() };
   } catch (err) {
     if (err instanceof PicnicTwoFactorRequiredError) {
@@ -164,6 +161,14 @@ export function resetPicnicClient(): void {
   try { setSetting("picnic_auth_key", ""); } catch { /* ignore — db may not be ready */ }
 }
 
+/**
+ * Headers for the 2FA calls, taken from the library so the app version
+ * (`x-picnic-agent`) stays current — Picnic rejects outdated agents.
+ */
+function twoFactorHeaders(picnic: Client): Record<string, string> {
+  return { ...picnic.baseHeaders, ...picnic.picnicHeaders };
+}
+
 /** Logs in (if needed) and generates a 2FA SMS code. */
 export async function generatePicnicTwoFactor(): Promise<void> {
   const creds = getCredentials();
@@ -173,30 +178,25 @@ export async function generatePicnicTwoFactor(): Promise<void> {
 
   // Ensure we have a pre-2FA client
   if (!client || (!authenticated && !needsTwoFactor)) {
-    client = new PicnicClient({ countryCode: creds.countryCode });
-    const loginResult = await client.login(creds.username, creds.password);
-    if (!loginResult?.second_factor_authentication_required) {
+    const fresh = new PicnicClient({ countryCode: creds.countryCode });
+    client = fresh;
+    const loginResult = await fresh.auth.login(creds.username, creds.password);
+    if (!loginResult.secondFactorAuthenticationRequired) {
       // Already authenticated without 2FA
       authenticated = true;
       needsTwoFactor = false;
+      setSetting("picnic_auth_key", fresh.authKey ?? "");
       return;
     }
     needsTwoFactor = true;
     authenticated = false;
   }
 
-  // Direct fetch — picnic's /user/2fa/generate returns HTTP 200 with an empty body.
-  // Using client.generate2FACode() would call response.json() on that empty body
-  // and throw a SyntaxError. We skip body parsing entirely here.
+  // Direct fetch — /user/2fa/generate can answer 200 with an empty body, which
+  // the library's JSON body parsing would choke on. We skip body parsing.
   const generateResponse = await fetch(`${client.url}/user/2fa/generate`, {
     method: "POST",
-    headers: {
-      "User-Agent": "okhttp/3.12.2",
-      "Content-Type": "application/json; charset=UTF-8",
-      "x-picnic-auth": client.authKey,
-      "x-picnic-agent": "30100;1.15.232-15154",
-      "x-picnic-did": "3C417201548B2E3B",
-    },
+    headers: twoFactorHeaders(client),
     body: JSON.stringify({ channel: "SMS" }),
   });
   if (!generateResponse.ok) {
@@ -205,7 +205,6 @@ export async function generatePicnicTwoFactor(): Promise<void> {
       `Failed to send 2FA code: ${generateResponse.status} ${generateResponse.statusText}${text ? ` — ${text}` : ""}`
     );
   }
-  // Success — do NOT call response.json() as the body may be empty
   console.log("[picnic] 2FA SMS code generated");
 }
 
@@ -214,18 +213,12 @@ export async function verifyPicnicTwoFactor(code: string): Promise<void> {
   if (!client) {
     throw new Error("No Picnic session. Generate a 2FA code first.");
   }
-  // Direct fetch — we need to capture the updated x-picnic-auth header that
-  // Picnic issues after 2FA verification (JWT gains pc:2fa: VERIFIED claim).
-  // client.verify2FACode() discards response headers, leaving the old token.
+  // Direct fetch rather than client.auth.verify2FACode(): the library throws
+  // when Picnic doesn't send a new x-picnic-auth header, but the old key is
+  // still valid then, so we keep it instead of failing the verification.
   const verifyResponse = await fetch(`${client.url}/user/2fa/verify`, {
     method: "POST",
-    headers: {
-      "User-Agent": "okhttp/3.12.2",
-      "Content-Type": "application/json; charset=UTF-8",
-      "x-picnic-auth": client.authKey,
-      "x-picnic-agent": "30100;1.15.232-15154",
-      "x-picnic-did": "3C417201548B2E3B",
-    },
+    headers: twoFactorHeaders(client),
     body: JSON.stringify({ otp: code }),
   });
   if (!verifyResponse.ok) {
@@ -234,7 +227,7 @@ export async function verifyPicnicTwoFactor(code: string): Promise<void> {
       `Verification failed: ${verifyResponse.status} ${verifyResponse.statusText}${text ? ` — ${text}` : ""}`
     );
   }
-  // Capture the updated auth token if Picnic issues one post-verification
+  // Picnic issues an updated token after verification (JWT gains the 2FA claim)
   const newAuthKey = verifyResponse.headers.get("x-picnic-auth");
   if (newAuthKey) {
     client.authKey = newAuthKey;
@@ -243,7 +236,7 @@ export async function verifyPicnicTwoFactor(code: string): Promise<void> {
   authenticated = true;
   needsTwoFactor = false;
   // Persist auth key so the session survives hot-reloads and worker restarts
-  setSetting("picnic_auth_key", client.authKey);
+  setSetting("picnic_auth_key", client.authKey ?? "");
   console.log("[picnic] 2FA verified, session is now active");
 }
 
@@ -264,113 +257,231 @@ export interface RawSearchResult {
   price: number;
   image_id: string;
   unit_quantity: string;
+  /** Price per kg / litre / piece as Picnic shows it, e.g. "€1,26/l" — helps pick package sizes */
+  unit_price: string | null;
+  /** Active promotion label on the tile, e.g. "1+1 gratis" */
+  promo_label: string | null;
+}
+
+export interface CartItem {
+  id: string;
+  name: string;
+  /** Price per unit in cents */
+  price: number;
+  quantity: number;
+  image_id: string;
+  unit_quantity: string;
 }
 
 export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function fetchSearch(query: string): Promise<any[]> {
+function tilePromoLabel(tile: ProductTile): string | null {
+  const promo = tile.labels.find((l) => l.type === "PROMO" && l.text) ?? null;
+  return promo?.text ?? null;
+}
+
+/**
+ * Searches the way the Picnic app does. Results come in sections — typically
+ * "Opnieuw bestellen" (products bought before) first, then product groups — so
+ * flattening them in order naturally prefers what the household already buys.
+ */
+async function fetchSearch(query: string): Promise<ProductTile[]> {
+  const run = async (picnic: Client) => {
+    const results = await picnic.catalog.getSearchResults(query);
+    const seen = new Set<string>();
+    const tiles: ProductTile[] = [];
+    for (const section of results.products?.sections ?? []) {
+      for (const tile of section.products) {
+        if (seen.has(tile.id) || tile.isUnavailable) continue;
+        seen.add(tile.id);
+        tiles.push(tile);
+      }
+    }
+    return tiles;
+  };
   try {
-    const results = await withAuthRetry((picnic) => picnic.search(query));
-    return Array.isArray(results) ? results : [];
+    return await withAuthRetry(run);
   } catch (err: unknown) {
     // 403 = rate limit → wait 5s and retry once
-    if (err instanceof Error && err.message.includes("403")) {
-      console.warn("[picnic] 403 rate limit, waiting 5s before retry...", err.message);
+    if (picnicStatus(err) === 403) {
+      console.warn("[picnic] 403 rate limit, waiting 5s before retry...");
       await delay(5000);
-      const picnic = await getPicnicClient();
-      const retryResult = await picnic.search(query);
-      return Array.isArray(retryResult) ? retryResult : [];
+      return run(await getPicnicClient());
     }
     throw err;
   }
 }
 
+function tileToRaw(tile: ProductTile): RawSearchResult {
+  return {
+    id: tile.id,
+    name: tile.brand ? `${tile.brand} ${tile.name}` : tile.name,
+    price: tile.displayPrice,
+    image_id: tile.imageId ?? "",
+    unit_quantity: tile.unitQuantity,
+    unit_price: tile.unitPrice,
+    promo_label: tilePromoLabel(tile),
+  };
+}
+
 export async function rawSearch(query: string, limit: number = 5): Promise<RawSearchResult[]> {
   console.log("[picnic] rawSearch called with query:", query);
-  const items = await fetchSearch(query);
-  console.log("[picnic] rawSearch results count:", items.length);
-
+  const tiles = await fetchSearch(query);
+  console.log("[picnic] rawSearch results count:", tiles.length);
   const maxResults = Math.min(Math.max(limit, 1), 20);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return items.slice(0, maxResults).map((item: any) => ({
-    id: String(item.id),
-    name: item.name || "",
-    price: parseInt(item.display_price) || 0,
-    image_id: item.image_id || "",
-    unit_quantity: item.unit_quantity || "",
-  }));
+  return tiles.slice(0, maxResults).map(tileToRaw);
 }
 
-export async function searchProduct(
-  query: string
-): Promise<MatchedProduct | null> {
+export async function searchProduct(query: string): Promise<MatchedProduct | null> {
   console.log("[picnic] searchProduct called with query:", query);
-  const items = await fetchSearch(query);
-  console.log("[picnic] results count:", items.length);
-
-  if (items.length > 0) {
-    const item = items[0];
-    console.log("[picnic] matched product:", item.name, "id:", item.id, "price:", item.display_price);
-    return {
-      picnic_id: String(item.id),
-      name: item.name || "",
-      image_id: item.image_id || "",
-      price: parseInt(item.display_price) || 0,
-      unit_quantity: item.unit_quantity || "",
-      quantity: 1,
-    };
+  const tiles = await fetchSearch(query);
+  console.log("[picnic] results count:", tiles.length);
+  if (tiles.length === 0) {
+    console.log("[picnic] no products found for:", query);
+    return null;
   }
-
-  console.log("[picnic] no products found for:", query);
-  return null;
+  const r = tileToRaw(tiles[0]);
+  console.log("[picnic] matched product:", r.name, "id:", r.id, "price:", r.price);
+  return {
+    picnic_id: r.id,
+    name: r.name,
+    image_id: r.image_id,
+    price: r.price,
+    unit_quantity: r.unit_quantity,
+    quantity: 1,
+  };
 }
 
-export async function addToCart(
-  productId: string,
-  count: number = 1
-): Promise<void> {
-  await withAuthRetry((picnic) => picnic.addProductToShoppingCart(productId, count));
+export async function addToCart(productId: string, count: number = 1): Promise<void> {
+  await withAuthRetry((picnic) => picnic.cart.addProductToCart(productId, count));
 }
 
 export async function removeFromCart(productId: string, count: number = 1): Promise<void> {
-  await withAuthRetry((picnic) => picnic.removeProductFromShoppingCart(productId, count));
+  await withAuthRetry((picnic) => picnic.cart.removeProductFromCart(productId, count));
 }
 
-export async function getCart(): Promise<unknown> {
-  return withAuthRetry((picnic) => picnic.getShoppingCart());
+/** The Picnic cart as a flat list of products with per-unit prices. */
+export async function getCart(): Promise<CartItem[]> {
+  const cart = await withAuthRetry((picnic) => picnic.cart.getCart());
+  // A product can be on several lines (e.g. once loose, once for a recipe) — merge them
+  const byProduct = new Map<string, CartItem>();
+  for (const line of cart.items) {
+    const quantity = Math.max(line.quantity, 1);
+    const existing = byProduct.get(line.productId);
+    if (existing) {
+      existing.quantity += quantity;
+      continue;
+    }
+    byProduct.set(line.productId, {
+      id: line.productId,
+      name: line.name,
+      // displayPrice is the line total after discounts
+      price: Math.round(line.displayPrice / quantity),
+      quantity,
+      image_id: line.imageId ?? "",
+      unit_quantity: line.unitQuantity,
+    });
+  }
+  return Array.from(byProduct.values());
 }
 
 export async function clearCart(): Promise<void> {
-  await withAuthRetry((picnic) => picnic.clearShoppingCart());
+  await withAuthRetry((picnic) => picnic.cart.clearCart());
 }
 
-async function fetchPDP(productId: string): Promise<unknown> {
-  return withAuthRetry((picnic) => picnic.getProductDetailsPage(productId));
+function formatEuro(cents: number): string {
+  return `€${(cents / 100).toFixed(2).replace(".", ",")}`;
 }
 
-export async function getProductBundles(productId: string): Promise<import("./types").BundleOption[]> {
-  const { extractBundlesFromPDP } = await import("./pdp-parser");
-  const pdp = await fetchPDP(productId);
-  return extractBundlesFromPDP(pdp);
+/**
+ * Bundle offers of a product. Picnic now models these as price tiers on the
+ * product itself ("1 stuk €2,75 · vanaf 2 €2,69"), so each option is the same
+ * product bought at a minimum quantity.
+ */
+export async function getProductBundles(productId: string): Promise<BundleOption[]> {
+  const product = await withAuthRetry((picnic) => picnic.catalog.getProduct(productId));
+  const tiers = [...(product.priceRanges ?? [])].sort((a, b) => a.from_quantity - b.from_quantity);
+  if (tiers.length < 2) return [];
+  const basePrice = tiers[0].price;
+  const name = product.brand ? `${product.brand} ${product.name}` : product.name;
+  return tiers.map((tier) => {
+    const saving = (basePrice - tier.price) * tier.from_quantity;
+    return {
+      id: product.id,
+      name,
+      image_id: product.imageIds[0] ?? "",
+      price: tier.price,
+      unit_quantity:
+        tier.from_quantity > 1
+          ? `${tier.from_quantity}x · ${product.unitQuantity}`
+          : product.unitQuantity,
+      min_quantity: tier.from_quantity,
+      promo_label: saving > 0 ? `Bespaar ${formatEuro(saving)}` : undefined,
+    };
+  });
 }
 
 export async function getProductPromoLabel(productId: string): Promise<string | null> {
-  const { extractPromoLabel } = await import("./pdp-parser");
-  const pdp = await fetchPDP(productId);
-  return extractPromoLabel(pdp, productId);
+  try {
+    const product = await withAuthRetry((picnic) => picnic.catalog.getProduct(productId));
+    return product.promotion?.label ?? null;
+  } catch (err) {
+    if (PicnicClient.isProductNotFoundError(err)) return null;
+    throw err;
+  }
 }
 
-export async function getPromoProductsFromPDP(productId: string): Promise<{
-  selfLabel: string | null;
-  promoProducts: import("./types").PromoProduct[];
-}> {
-  const { extractPromoLabel, extractPromoProducts } = await import("./pdp-parser");
-  const pdp = await fetchPDP(productId);
+export interface PromotionsOverview {
+  /** Products shown directly on the promotions page */
+  products: PromoProduct[];
+  /** Promotions spanning several products; their products need a separate call */
+  groups: { id: string; name: string; label: string }[];
+}
+
+/** Reads Picnic's promotions page ("Acties") — the source for the Deals feature. */
+export async function getPromotionsOverview(): Promise<PromotionsOverview> {
+  const promotions = await withAuthRetry((picnic) => picnic.catalog.getPromotions());
+  const products = new Map<string, PromoProduct>();
+  const groups = new Map<string, { id: string; name: string; label: string }>();
+  for (const section of promotions.sections) {
+    for (const tile of section.products) {
+      const label = tilePromoLabel(tile);
+      if (!label || products.has(tile.id)) continue;
+      products.set(tile.id, {
+        ...tileToPromoBase(tile),
+        promotion_id: section.id,
+        promo_label: label,
+      });
+    }
+    for (const group of section.groups) {
+      if (!groups.has(group.id)) {
+        groups.set(group.id, { id: group.id, name: group.name, label: group.label ?? "" });
+      }
+    }
+  }
+  return { products: Array.from(products.values()), groups: Array.from(groups.values()) };
+}
+
+/** Products in a multi-product promotion, e.g. "Korting op Alpro". */
+export async function getPromotionGroupProducts(group: {
+  id: string;
+  label: string;
+}): Promise<PromoProduct[]> {
+  const result = await withAuthRetry((picnic) => picnic.catalog.getPromotionGroup(group.id));
+  return result.products.map((tile) => ({
+    ...tileToPromoBase(tile),
+    promotion_id: group.id,
+    promo_label: tilePromoLabel(tile) ?? group.label,
+  }));
+}
+
+function tileToPromoBase(tile: ProductTile) {
   return {
-    selfLabel: extractPromoLabel(pdp, productId),
-    promoProducts: extractPromoProducts(pdp),
+    picnic_id: tile.id,
+    name: tile.brand ? `${tile.brand} ${tile.name}` : tile.name,
+    image_id: tile.imageId ?? "",
+    price: tile.displayPrice,
   };
 }

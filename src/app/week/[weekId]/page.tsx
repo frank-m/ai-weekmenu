@@ -244,13 +244,14 @@ export default function WeekDetailPage() {
           image_id: bundle.image_id,
           price: bundle.price,
           unit_quantity: bundle.unit_quantity,
+          quantity: Math.max(bundle.min_quantity, bundleModalItem.quantity || 1),
         }),
       });
       setBundleModalItem(null);
       setFrequentItems((prev) =>
         prev.map((i) =>
           i.id === bundleModalItem.id
-            ? { ...i, picnic_id: bundle.id, name: bundle.name, image_id: bundle.image_id, price: bundle.price, unit_quantity: bundle.unit_quantity }
+            ? { ...i, picnic_id: bundle.id, name: bundle.name, image_id: bundle.image_id, price: bundle.price, unit_quantity: bundle.unit_quantity, quantity: Math.max(bundle.min_quantity, i.quantity || 1) }
             : i
         )
       );
@@ -486,7 +487,7 @@ export default function WeekDetailPage() {
         <BundleModal
           productId={bundleModalItem.picnic_id}
           productName={bundleModalItem.name}
-          currentBundleId={bundleModalItem.picnic_id}
+          currentQuantity={bundleModalItem.quantity || 1}
           onClose={() => setBundleModalItem(null)}
           onSelect={handleFrequentBundleSelect}
         />

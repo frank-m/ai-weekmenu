@@ -11,7 +11,8 @@ const PRODUCT_IMAGE_BASE =
 interface BundleModalProps {
   productId: string;
   productName: string;
-  currentBundleId: string;
+  /** Units of this product currently needed for the ingredient */
+  currentQuantity: number;
   onClose: () => void;
   onSelect: (bundle: BundleOption) => void;
 }
@@ -19,7 +20,7 @@ interface BundleModalProps {
 export default function BundleModal({
   productId,
   productName,
-  currentBundleId,
+  currentQuantity,
   onClose,
   onSelect,
 }: BundleModalProps) {
@@ -89,11 +90,16 @@ export default function BundleModal({
 
           {!loading && bundles.length > 0 && (
             <div className="space-y-2">
-              {bundles.map((bundle) => {
-                const isCurrent = bundle.id === currentBundleId;
+              {bundles.map((bundle, i) => {
+                // Tiers are sorted ascending: the current one is the highest
+                // tier whose minimum the current quantity reaches
+                const next = bundles[i + 1];
+                const isCurrent =
+                  currentQuantity >= bundle.min_quantity &&
+                  (!next || currentQuantity < next.min_quantity);
                 return (
                   <button
-                    key={bundle.id}
+                    key={bundle.min_quantity}
                     onClick={() => !isCurrent && onSelect(bundle)}
                     disabled={isCurrent}
                     className={`w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors ${
@@ -128,8 +134,13 @@ export default function BundleModal({
                     </div>
                     <div className="text-right flex-shrink-0">
                       <div className="text-sm font-semibold text-gray-900">
-                        &euro;{(bundle.price / 100).toFixed(2)}
+                        &euro;{((bundle.price * bundle.min_quantity) / 100).toFixed(2)}
                       </div>
+                      {bundle.min_quantity > 1 && (
+                        <div className="text-xs text-gray-500">
+                          &euro;{(bundle.price / 100).toFixed(2)} each
+                        </div>
+                      )}
                       {isCurrent && (
                         <span className="text-xs text-green-600">Current</span>
                       )}

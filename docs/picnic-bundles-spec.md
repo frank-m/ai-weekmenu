@@ -1,143 +1,66 @@
-# Picnic Bundles Spec
+# Picnic Bundles, Promotions & Deals Spec
 
-## What are bundles?
+All Picnic access goes through `picnic-api` (5.x), wrapped in `src/lib/picnic.ts`. The library
+reads Picnic's app pages, which Picnic serves as either "Fusion" (PML JSON) or RSC (React Server
+Components) depending on the page and the app version in `x-picnic-agent`. The library handles
+both formats; we no longer parse page trees ourselves (the old `pdp-parser.ts` is gone).
 
-Bundles are multi-pack variants of the same product at volume-discounted prices. Example: Coca-Cola Zero cafeïnevrij available as 1x 1.5L (€2.89), 4x 1.5L (€2.79/each, "Bespaar 40 cent"), 6x 1.5L (€2.69/each, "Bespaar €1.20").
+When something here breaks, first check for a newer `picnic-api` release — Picnic changes page
+formats often and the library usually follows within days.
 
-Not all products have bundles. Products with only a promo label like "2e halve prijs" (e.g. Campina kwark) do NOT have bundles — that's a store-wide promotion on the single selling unit, not a multi-pack option.
+## Bundles = price tiers
 
-## Where bundle data lives
-
-Bundle data is in the PDP response from `getProductDetailsPage(productId)`. There is no separate bundles API — the old `bundle-overview-page` endpoint returns 404.
-
-### PDP tree location
+Bundles are volume prices on **one** product (selling unit), e.g. Coca-Cola Zero:
 
 ```
-pdpResponse
-  .body.child.child           (nested STATE_BOUNDARY wrappers)
-    .children[1]              (root-content BLOCK)
-      .children[N]            (one of the top-level sections)
+1 stuk     €2,89
+vanaf 4    €2,79 each   (Bespaar €0,40)
+vanaf 6    €2,69 each   (Bespaar €1,20)
 ```
 
-The bundle block has `id` matching `product-page-bundles-*` (e.g. `product-page-bundles-10511531`) and `type: "BLOCK"`.
-
-### Bundle block structure
-
-```json
-{
-  "id": "product-page-bundles-10511531",
-  "type": "BLOCK",
-  "children": [
-    // One STATE_BOUNDARY per bundle variant
-    {
-      "id": "s1001789",              // selling unit ID
-      "type": "STATE_BOUNDARY",
-      "child": {
-        "type": "PML",
-        "id": "product-page-bundle-item-s1001789",
-        "content": {
-          "type": "SELLING_UNIT_TILE",
-          "sellingUnit": {
-            "id": "s1001789",
-            "name": "zero cafeinevrij",
-            "image_id": "488a017f...",
-            "max_count": 50
-          }
-        },
-        "pml": { /* PML component tree with price/text */ }
-      }
-    }
-  ]
-}
-```
-
-### Extracting data from each bundle item
-
-Each `STATE_BOUNDARY` child contains a PML tree with:
-
-| Data | Location | Example |
-|---|---|---|
-| Selling unit ID | `child.content.sellingUnit.id` | `"s1001789"` |
-| Product name | `child.content.sellingUnit.name` | `"zero cafeinevrij"` |
-| Image ID | `child.content.sellingUnit.image_id` | `"488a017f..."` |
-| Per-unit price (cents) | PML node with `type: "PRICE"`, field `price` | `289` |
-| Volume | RICH_TEXT markdown matching `\d.*(?:liter\|ml\|gram\|kg\|stuks?)` | `"1,5 liter"` |
-| Unit price | RICH_TEXT markdown matching `€\d+\.\d+/\w+` | `"€1.93/l"` |
-| Pack multiplier | RICH_TEXT markdown that is just a number (`/^\d+$/`) | `"4"`, `"6"` |
-| Promo/savings text | RICH_TEXT markdown containing "Bespaar" or "korting" | `"Bespaar 40 cent"` |
-| Accessibility label | Contains total price: `"naam, voor, X € Y cent"` | `"zero cafeinevrij, voor, 11 € 16 cent"` |
-
-### Markdown color codes
-
-PML RICH_TEXT markdown contains color codes like `#(#333333)text#(#333333)`. Strip with: `md.replace(/#\([^)]+\)/g, "")`.
-
-## Things that are NOT bundles
-
-### "Meer met korting" section
-Located in `browsing-container` > `core-horizontal-selling-unit-section-localized` > `horizontal-selling-unit-tiles`. These are **other products in the same promotion group** (sharing the same `promotion_id` UUID) — not bundle variants of the current product. Up to ~18 tiles per PDP.
-
-#### Tile structure
-
-Each tile has `type: "PML"` and `id: "selling-unit-{product_id}-tile"`.
-
-| Data | Location |
-|---|---|
-| Product ID | tile `id`: extract with `/^selling-unit-(.+)-tile$/` |
-| Name | `content.sellingUnit.name` |
-| Image ID | `content.sellingUnit.image_id` |
-| Price (cents) | analytics context `promotion/jsonschema/1-1-0` → `data.price` |
-| Promotion ID | analytics context `promotion/jsonschema/1-1-0` → `data.promotion_id` |
-| Promo label | analytics context `promotion/jsonschema/1-1-0` → `data.promotion_label` |
-
-All tiles in the section share the same `promotion_id`. Fetching one product's PDP therefore reveals all products in that promotion campaign.
-
-#### Implementation
-
-`extractPromoProducts(pdpResponse)` in `src/lib/pdp-parser.ts` parses this section.
-`getPromoProductsFromPDP(productId)` in `src/lib/picnic.ts` returns both the self promo label and the Meer met korting products in a single PDP fetch.
-Used by `POST /api/picnic/deals/refresh` for the Deals feature.
-
-### "Vergelijkbaar" section
-Located in `alternatives-container`. These are **similar products from other brands**.
-
-### "2e halve prijs" label
-A promotional label on `product-page-labels-{id}`. Means the product itself is on a "buy one get second half price" deal. This is independent of bundles — the product may or may not also have bundle variants.
-
-## Promo labels block
-
-Promotion labels (e.g. "2e halve prijs", "10% korting") live in a separate PDP block from bundles.
-
-### PDP tree location
-
-Block has `id` matching `product-page-labels-{sellingUnitId}` (e.g. `product-page-labels-s1002130`). Found at the same level as the bundles block under `children[1].children`.
-
-### Extraction
-
-The block contains a PML tree with RICH_TEXT nodes. Use `collectFromPml()` to gather all markdown strings, then strip `#(...)` color codes. The first non-empty cleaned markdown is the promo label text.
-
-Products without active promotions either have no `product-page-labels-*` block, or the block contains an empty labels array.
-
-### Known false positive: "X in bestelling"
-
-Cart quantity labels ("1 in bestelling", "6 in bestelling") appear in the same `product-page-labels-*` block as real promo labels. These indicate how many of the item are in your current Picnic order — not a discount.
-
-Filter: `extractPromoLabel` skips any markdown matching `/\bin bestelling\b/i`.
+Earlier Picnic versions modelled these as separate selling units (one id per multi-pack). Current
+pages expose them as `Product.priceRanges: { price, from_quantity }[]` from `catalog.getProduct(id)`.
+Products without tiers have `priceRanges: null`.
 
 ### Implementation
 
-- `extractPromoLabel(pdpResponse, sellingUnitId)` in `src/lib/pdp-parser.ts`
-- `getProductPromoLabel(productId)` in `src/lib/picnic.ts`
-- Batch endpoint: `POST /api/picnic/promos` with `{ product_ids: string[] }`
-- Labels are fetched live (not stored in DB) since promotions change weekly
+- `getProductBundles(productId)` in `src/lib/picnic.ts` turns the tiers into `BundleOption[]`
+  (sorted by `min_quantity`); fewer than two tiers → no bundles. `price` is the per-unit price of
+  the tier; `promo_label` is the computed saving vs. the 1-unit price ("Bespaar €1,20").
+- `BundleModal` marks the current tier as the highest one whose `min_quantity` the current quantity
+  reaches, and shows the tier total plus the per-unit price.
+- Selecting a tier keeps the same `picnic_id` and sets `quantity = max(min_quantity, current)`:
+  `PUT /api/picnic/search` (ingredients) or `PUT /api/frequent-items` (frequent items), both of
+  which accept an optional `quantity`.
+- The cart applies tier prices automatically from the quantity; nothing else to send.
 
-## Example: product with bundles (Coca-Cola Zero cafeïnevrij)
+## Promo labels
 
-```
-s1001789 | 1,5 liter · €1.93/l  | €2.89 | (no promo — base unit)
-s1047511 | 4x · €1.86/l         | €2.79 | Bespaar 40 cent
-s1083839 | 6x · €1.79/l         | €2.69 | Bespaar €1.20
-```
+`Product.promotion` (`{ id, label }`, e.g. "1+1 gratis") from `catalog.getProduct(id)`.
 
-## Example: product without bundles (Campina magere milde kwark naturel)
+- `getProductPromoLabel(productId)` → `product.promotion?.label ?? null` (null for products that
+  no longer exist / aren't available at the address — `ProductNotFoundError`).
+- Batch endpoint: `POST /api/picnic/promos` with `{ product_ids: string[] }` (max 20, 250ms apart).
+  Labels are fetched live (not stored) since promotions change weekly.
+- Search results and promotion tiles carry labels too (`ProductTile.labels`, type `PROMO`); the
+  app exposes that as `promo_label` on `RawSearchResult`.
 
-No `product-page-bundles-*` block exists in PDP. The "2e halve prijs" is just a label. Parser returns empty array.
+The old "X in bestelling" false positive (cart quantity shown as a label) came from scraping the
+PDP labels block and doesn't apply to `promotion`.
+
+## Deals
+
+`POST /api/picnic/deals/refresh` reads the promotions page:
+
+1. `catalog.getPromotions()` — the app's "Acties" tab, as sections (personal promotions,
+   "Uitgelicht", one per category, bargain bin). Every tile with a `PROMO` label goes into
+   `sale_cache`.
+2. Each section also lists **promotion groups** — promotions on several products, e.g. "Korting op
+   Alpro". `catalog.getPromotionGroup(id)` returns their products; tiles without their own label
+   get the group's label. Max 40 group calls per run, 500ms apart, most-recently-seen first
+   (`known_promotions.last_seen_at`).
+3. `sale_cache` is replaced on every successful refresh — the promotions page is the complete list.
+   `known_promotions.active` = listed on the last refresh.
+
+Not used (yet) but available in the library: `catalog.getCategoryPromotions(categoryId)` and
+`catalog.getCheaperAlternatives(productId)`.

@@ -76,15 +76,19 @@ export async function PUT(request: Request) {
     const db = getDb();
 
     if (body.picnic_id) {
-      // Bundle swap: update all product fields
+      // Bundle (price tier) swap: update the product fields, plus the quantity
+      // when the tier needs a minimum
+      const qty =
+        typeof body.quantity === "number" && body.quantity >= 1 ? Math.round(body.quantity) : null;
       db.prepare(
-        "UPDATE frequent_items SET picnic_id = ?, name = ?, image_id = ?, price = ?, unit_quantity = ? WHERE id = ?"
+        "UPDATE frequent_items SET picnic_id = ?, name = ?, image_id = ?, price = ?, unit_quantity = ?, quantity = COALESCE(?, quantity) WHERE id = ?"
       ).run(
         body.picnic_id,
         body.name || "",
         body.image_id || "",
         body.price || 0,
         body.unit_quantity || "",
+        qty,
         body.id
       );
     } else if (body.quantity !== undefined) {

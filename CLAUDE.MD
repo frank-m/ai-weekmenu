@@ -12,7 +12,7 @@ Weekmenu: a web app that generates weekly dinner menus using Gemini AI, matches 
 - Tailwind CSS (responsive, mobile-first)
 - SQLite via better-sqlite3 for persistence
 - `@google/genai` (Gemini) for recipe generation with structured JSON output
-- `picnic-api` for grocery integration
+- `picnic-api` (pinned to an exact 5.x version) for grocery integration — the library reads Picnic's app pages, which Picnic keeps changing (Fusion → RSC formats), so expect to bump it regularly
 - `mcp-picnic` configured as MCP server for development
 
 ## Commands
@@ -51,14 +51,16 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 
 ### Picnic Integration (lib/picnic.ts)
 - Singleton PicnicClient with lazy auth; state: `authenticated`, `needsTwoFactor`, `hasClient`; concurrent logins are deduplicated via an in-flight promise
-- A persisted auth key (settings `picnic_auth_key`, never returned by GET /api/settings) is restored optimistically; `checkPicnicConnection()` validates it with a cheap `getUserDetails()` call — used by `POST /api/picnic/2fa` and the Navbar status pill
-- 500ms delay between searches; 500ms delay between PDP calls (deals refresh) to avoid rate limiting
-- Picnic returns 403 for rate limiting and 401 for expired sessions; ALL client calls (search, PDP, cart ops) go through `withAuthRetry`, which resets + re-authenticates and retries once on 401. 403 in `fetchSearch` retries once after a 5s wait; 403 in `fetchPDP` is not retried — back off and try again later.
+- A persisted auth key (settings `picnic_auth_key`, never returned by GET /api/settings) is restored optimistically; `checkPicnicConnection()` validates it with a cheap `user.getUser()` call — used by `POST /api/picnic/2fa` and the Navbar status pill
+- All library access is wrapped in lib/picnic.ts, which maps library models (camelCase) to the app's snake_case shapes (`RawSearchResult`, `MatchedProduct`, `CartItem`, `BundleOption`, `PromoProduct`); routes never touch the client directly
+- Search uses `catalog.getSearchResults`, flattening the result sections in order ("Opnieuw bestellen" — previously bought — comes first) and skipping unavailable products; results carry `unit_price` and `promo_label`, which the Gemini matcher is told to use
+- 500ms delay between searches; 500ms delay between promotion-group calls (deals refresh) to avoid rate limiting
+- Picnic returns 403 for rate limiting and 401 for expired sessions (`PicnicApiError.status`); ALL client calls go through `withAuthRetry`, which resets + re-authenticates and retries once on 401. 403 in `fetchSearch` retries once after a 5s wait; other 403s are not retried — back off and try again later.
 - Settings PUT only calls `resetPicnicClient()` when a `picnic_*` value actually *changed* — an unconditional reset used to wipe the stored auth key on every settings save, silently logging the user out
-- **Two-factor authentication (2FA)**: Picnic may enable mandatory 2FA on accounts. Login detects `second_factor_authentication_required: true` → sets `needsTwoFactor = true` → throws `PicnicTwoFactorRequiredError`. The app exposes a 2FA flow in Settings: send SMS code → verify code. Routes: `GET /api/picnic/2fa` (state), `POST /api/picnic/2fa/generate` (send SMS), `POST /api/picnic/2fa/verify` (verify code). Diagnostic: `npx tsx scripts/test-picnic.ts`
+- **Two-factor authentication (2FA)**: Picnic may enable mandatory 2FA on accounts. Login detects `second_factor_authentication_required: true` → sets `needsTwoFactor = true` → throws `PicnicTwoFactorRequiredError`. The app exposes a 2FA flow in Settings: send SMS code → verify code. Routes: `GET /api/picnic/2fa` (state), `POST /api/picnic/2fa/generate` (send SMS), `POST /api/picnic/2fa/verify` (verify code). The 2FA calls are direct fetches using the library's `baseHeaders` + `picnicHeaders`, so the `x-picnic-agent` app version stays current (an outdated agent got 422s). Diagnostic: `npx tsx scripts/test-picnic.ts` (reuses the stored session; `--fresh-login` tests login and prints Picnic's error body)
 - Product images: `https://storefront-prod.nl.picnicinternational.com/static/images/{image_id}/small.png`
 - Credentials from settings DB or env vars (`PICNIC_USERNAME`, `PICNIC_PASSWORD`, `PICNIC_COUNTRY_CODE`)
-- PDP bundles & promo labels: see `docs/picnic-bundles-spec.md` — **always read this file** before working on Picnic product/bundle/promo features
+- Bundles & promo labels: see `docs/picnic-bundles-spec.md` — **always read this file** before working on Picnic product/bundle/promo features. Bundles are now price tiers (`Product.priceRanges`) on one product: choosing one sets `quantity` to at least the tier minimum
 
 ### Database Schema (SQLite)
 - **weeks**: id, title, created_at, num_nights, servings, preferences (JSON)
@@ -70,7 +72,7 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - **staples**: id, name (unique) — user-editable list of staple pantry ingredients, seeded with defaults exactly once (tracked via `staples_seeded` settings key, so an intentionally emptied list stays empty)
 - **exclusions**: id, name (unique) — user-editable list of ingredients/dishes Gemini must never include in generated recipes
 - **sale_cache**: picnic_id (PK), name, image_id, price (cents), promo_label, fetched_at (unix ts) — cached on-sale products; stale after 48h
-- **known_promotions**: promotion_id (PK), seed_picnic_id, label, first_seen_at, last_seen_at, active — accumulates all ever-seen Picnic promotion UUIDs; used as seeds for future deal refreshes
+- **known_promotions**: promotion_id (PK), seed_picnic_id, label, first_seen_at, last_seen_at, active — multi-product promotion groups seen on the promotions page; `active` = listed on the last refresh; `last_seen_at` orders groups when the per-run cap applies
 
 ### API Routes
 - `api/settings` — GET/PUT settings (GET masks secrets and strips `picnic_auth_key`)
@@ -80,18 +82,18 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - `api/recipes/custom` — GET list custom recipes, POST create custom recipe
 - `api/recipes/custom/[recipeId]` — GET single, PUT update, DELETE remove custom recipe
 - `api/recipes/generate` — POST preview generation
-- `api/picnic/search` — POST product search, PUT update matched product (bundle swap)
+- `api/picnic/search` — POST product search, PUT update matched product (product or bundle-tier swap; optional `quantity`)
 - `api/picnic/search/products` — POST raw product search (up to 20 results)
-- `api/picnic/bundles` — POST fetch bundle variants via PDP
-- `api/picnic/2fa` — GET in-memory auth state (authenticated/needsTwoFactor/hasClient/configured); POST verifies the connection end-to-end (login if needed + `getUserDetails` probe)
+- `api/picnic/bundles` — POST fetch bundle price tiers via `catalog.getProduct`
+- `api/picnic/2fa` — GET in-memory auth state (authenticated/needsTwoFactor/hasClient/configured); POST verifies the connection end-to-end (login if needed + `user.getUser` probe)
 - `api/picnic/2fa/generate` — POST send 2FA SMS code
 - `api/picnic/2fa/verify` — POST verify 2FA code `{code}`
 - `api/picnic/cart` — GET cart, POST add to cart, DELETE clear entire cart
 - `api/picnic/cart/bulk` — POST add multiple items
 - `api/picnic/cart/[productId]` — DELETE remove from cart
-- `api/picnic/promos` — POST batch promo label lookup (fetched live from PDP)
+- `api/picnic/promos` — POST batch promo label lookup (fetched live via `catalog.getProduct`)
 - `api/picnic/deals` — GET cached deals (sale_cache, max 48h stale)
-- `api/picnic/deals/refresh` — POST two-phase refresh: seeds from frequent_items + all known_promotions; upserts sale_cache + known_promotions
+- `api/picnic/deals/refresh` — POST refresh from the promotions page + its promotion groups; replaces sale_cache, upserts known_promotions
 - `api/frequent-items` — GET list, POST add, PUT update quantity, DELETE remove
 - `api/staples` — GET list, POST add, DELETE remove staple ingredients
 - `api/exclusions` — GET list, POST add, DELETE remove excluded ingredients/dishes
@@ -108,11 +110,8 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - Ingredient rows show: name + quantity | matched Picnic product + price + image | add-to-cart button (stacked vertically on mobile, horizontal on sm+)
 - Staple classification uses a user-editable DB list (`staples` table) instead of a hardcoded array; the list is included in the Gemini prompt
 - Calorie targets are configurable: `default_calories` setting + per-week portion size preference (light/normal/large)
-- Deals (experimental, `deals_enabled` setting): no bulk Picnic promo endpoint exists. Discovery uses two sources:
-  1. PDP "Meer met korting" section — each PDP exposes up to ~18 products sharing the same `promotion_id` UUID; these are harvested into `sale_cache` and the promotion UUID stored in `known_promotions` with a seed product ID
-  2. Known promotion UUIDs from `known_promotions` are re-seeded on every refresh (even inactive ones — promotions rotate and can reactivate)
-  - Refresh cap: 40 PDP calls per run, 500ms delay; Phase 1 skips frequent items already found via another item's promo group; Phase 2 processes most-recently-active promotions first
-  - False positive: `product-page-labels-*` also contains cart quantity labels ("X in bestelling"); filtered out in `extractPromoLabel` with `/\bin bestelling\b/i`
+- Deals (experimental, `deals_enabled` setting): read from Picnic's promotions page (`catalog.getPromotions()`, the app's "Acties" tab) — tiles with a `PROMO` label go into `sale_cache`; multi-product promotion groups are expanded with `catalog.getPromotionGroup()` (max 40 calls per run, 500ms delay, most-recently-seen groups first)
+  - Each refresh replaces `sale_cache`: the promotions page is the complete list, so anything not on it has ended
   - Active deals injected into Gemini prompt only when `deals_enabled=true`
 
 ## Environment Variables (.env.local)
