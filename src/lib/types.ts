@@ -60,6 +60,8 @@ export interface PicnicProduct {
   added_to_cart: boolean;
   /** Matched by blind first-result search (AI matcher found nothing) — worth checking */
   auto_matched: boolean;
+  /** Promotion on the product when it was matched, e.g. "1+1 gratis" */
+  promo_label: string | null;
 }
 
 export interface GeneratedRecipe {
@@ -109,6 +111,8 @@ export interface PromoProduct {
   price: number;       // cents
   promotion_id: string;
   promo_label: string; // e.g. "2e halve prijs"
+  /** Promotions page section, e.g. "Zuivel" — groups deals in the Gemini prompt */
+  category?: string;
 }
 
 export interface BundleOption {

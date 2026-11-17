@@ -22,7 +22,7 @@ Note: This app was fully vibecoded and is not meant to be ran in a production sc
 - **Leftover tracking** — tell the AI what leftovers you have so it incorporates them into new recipes
 - **Recipe regeneration** — regenerate individual recipes without recreating the entire week; previously rejected suggestions and recently cooked dishes are avoided for variety
 - **Connection status** — the navbar shows a live Picnic connection indicator; weeks with unmatched ingredients show a banner with a one-click "Retry matching" action
-- **Deals** *(experimental)* — reads Picnic's promotions page live (the app's "Acties" tab, including multi-product promotions, whose products load when you open them) and injects the deals into the Gemini prompt so the AI prefers cheaper ingredients. Enable in Settings → Experimental Features.
+- **Deals** *(experimental)* — reads Picnic's promotions page live (the app's "Acties" tab, including multi-product promotions, whose products load when you open them) and injects the deals into the Gemini prompt (grouped by category) so the AI builds dinners around what's on sale. Matched ingredients that are on sale get a promo badge, and each recipe card shows how many of its ingredients are on sale. Enable in Settings → Experimental Features.
 
 ## Getting Started
 

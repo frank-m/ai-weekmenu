@@ -273,6 +273,8 @@ export interface MatchedProduct {
   quantity: number;
   /** Set by matchIngredientsWithFallback when the product came from a plain first-result search */
   auto_matched?: boolean;
+  /** Promotion on the product at matching time, e.g. "1+1 gratis" */
+  promo_label?: string | null;
 }
 
 export interface RawSearchResult {
@@ -376,6 +378,7 @@ export async function searchProduct(query: string): Promise<MatchedProduct | nul
     price: r.price,
     unit_quantity: r.unit_quantity,
     quantity: 1,
+    promo_label: r.promo_label,
   };
 }
 
@@ -462,14 +465,14 @@ export interface PromotionsOverview {
   /** Products shown directly on the promotions page */
   products: PromoProduct[];
   /** Promotions spanning several products; their products need a separate call */
-  groups: { id: string; name: string; label: string }[];
+  groups: { id: string; name: string; label: string; category?: string }[];
 }
 
 /** Reads Picnic's promotions page ("Acties") — the source for the Deals feature. */
 export async function getPromotionsOverview(): Promise<PromotionsOverview> {
   const promotions = await withAuthRetry((picnic) => picnic.catalog.getPromotions());
   const products = new Map<string, PromoProduct>();
-  const groups = new Map<string, { id: string; name: string; label: string }>();
+  const groups = new Map<string, { id: string; name: string; label: string; category?: string }>();
   for (const section of promotions.sections) {
     for (const tile of section.products) {
       const label = tilePromoLabel(tile);
@@ -478,11 +481,12 @@ export async function getPromotionsOverview(): Promise<PromotionsOverview> {
         ...tileToPromoBase(tile),
         promotion_id: section.id,
         promo_label: label,
+        category: section.title,
       });
     }
     for (const group of section.groups) {
       if (!groups.has(group.id)) {
-        groups.set(group.id, { id: group.id, name: group.name, label: group.label ?? "" });
+        groups.set(group.id, { id: group.id, name: group.name, label: group.label ?? "", category: section.title });
       }
     }
   }

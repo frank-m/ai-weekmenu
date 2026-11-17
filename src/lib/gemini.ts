@@ -332,13 +332,26 @@ function buildPrompt(
   }
 
   if (deals && (deals.products.length > 0 || deals.groups.length > 0)) {
-    prompt += `\nCurrently on sale at Picnic (prefer these ingredients when suitable for the menu):\n`;
+    // Group by Picnic's promotions category (Zuivel, Vlees, Groente…) so the
+    // model can skip non-food sections and see what's cheap per food group
+    const byCategory = new Map<string, string[]>();
+    const add = (category: string | undefined, line: string) => {
+      const key = category || "Overig";
+      byCategory.set(key, [...(byCategory.get(key) ?? []), line]);
+    };
     for (const d of deals.products.slice(0, MAX_PROMPT_DEALS)) {
-      prompt += `- ${d.name}: ${d.promo_label} (€${(d.price / 100).toFixed(2)})\n`;
+      add(d.category, `${d.name}: ${d.promo_label} (€${(d.price / 100).toFixed(2)})`);
     }
     for (const g of deals.groups) {
-      prompt += `- ${g.name}${g.label ? `: ${g.label}` : ""} (several products)\n`;
+      add(g.category, `${g.name}${g.label ? `: ${g.label}` : ""} (several products)`);
     }
+    prompt += `\nThese Picnic products are on sale this week, by category. Where it fits the preferences above, build several of the dinners around ingredients from this list (especially the main protein or vegetables) to save money — ignore categories that aren't relevant for cooking dinner. Use the plain Dutch ingredient name in the recipe (e.g. "kipfilet", not the brand):\n`;
+    Array.from(byCategory.entries()).forEach(([category, lines]) => {
+      prompt += `${category}:\n${lines.map((l) => `- ${l}`).join("\n")}\n`;
+    });
+    console.log(
+      `[gemini] prompt includes ${Math.min(deals.products.length, MAX_PROMPT_DEALS)} deals + ${deals.groups.length} promotion groups in ${byCategory.size} categories`
+    );
   }
 
   if (preferences.seasonal !== false) {
@@ -432,6 +445,9 @@ export async function matchIngredientsToProducts(
   );
 
   const ingredientNames = ingredients.map((i) => i.name);
+  // Promo labels of every product the model saw, so the picked product keeps
+  // its promotion even though the model doesn't echo it back
+  const promoById = new Map<string, string>();
 
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
 
@@ -499,7 +515,11 @@ Format:
       }
 
       console.log("[gemini] final response received, parsing results");
-      return parseMatchResults(textPart.text, ingredientNames);
+      const matches = parseMatchResults(textPart.text, ingredientNames);
+      for (const match of Object.values(matches)) {
+        if (match) match.promo_label = promoById.get(match.picnic_id) ?? null;
+      }
+      return matches;
     }
 
     // Execute all function calls with rate limiting
@@ -512,6 +532,7 @@ Format:
       await delay(500);
       try {
         const results = await rawSearch(query);
+        for (const r of results) if (r.promo_label) promoById.set(r.id, r.promo_label);
         functionResponses.push({
           functionResponse: {
             name: call.name!,

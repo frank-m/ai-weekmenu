@@ -86,7 +86,7 @@ export async function GET(
           ...ing,
           is_staple: !!ing.is_staple,
           picnic_product: product
-            ? { ...product, added_to_cart: !!product.added_to_cart, auto_matched: !!product.auto_matched }
+            ? { ...product, added_to_cart: !!product.added_to_cart, auto_matched: !!product.auto_matched, promo_label: product.promo_label ?? null }
             : null,
         };
       });

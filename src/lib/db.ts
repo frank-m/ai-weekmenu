@@ -19,6 +19,7 @@ export function getDb(): Database.Database {
     migrateRecipesRating(db);
     migrateDeprecatedGeminiModel(db);
     migratePicnicProductsAutoMatched(db);
+    migratePicnicProductsPromoLabel(db);
   }
   return db;
 }
@@ -82,6 +83,14 @@ function migrateDeprecatedGeminiModel(db: Database.Database): void {
   db.prepare(
     `DELETE FROM settings WHERE key IN ('gemini_model', 'gemini_matching_model') AND value IN (${placeholders})`
   ).run(...DEPRECATED_GEMINI_MODELS);
+}
+
+// Promotion on the matched product at matching time, e.g. "1+1 gratis"
+function migratePicnicProductsPromoLabel(db: Database.Database): void {
+  const columns = db.pragma("table_info(picnic_products)") as Array<{ name: string }>;
+  if (!columns.some((c) => c.name === "promo_label")) {
+    db.exec("ALTER TABLE picnic_products ADD COLUMN promo_label TEXT");
+  }
 }
 
 function migratePicnicProductsAutoMatched(db: Database.Database): void {

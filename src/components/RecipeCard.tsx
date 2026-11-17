@@ -68,6 +68,8 @@ export default function RecipeCard({
   const nonStaples = ingredients.filter((i) => !i.is_staple && !isLeftover(i.name));
   const staples = ingredients.filter((i) => i.is_staple && !isLeftover(i.name));
   const leftoverIngredients = ingredients.filter((i) => isLeftover(i.name));
+  // Ingredients whose matched Picnic product was on sale when matched
+  const onSaleCount = nonStaples.filter((i) => i.picnic_product?.promo_label).length;
   const hasUnaddedProducts = nonStaples.some(
     (i) => i.picnic_product && !i.picnic_product.added_to_cart
   );
@@ -94,6 +96,11 @@ export default function RecipeCard({
               <h3 className="font-semibold text-gray-900">{recipe.title}</h3>
             </div>
             <div className="flex gap-1">
+              {onSaleCount > 0 && (
+                <span title="Ingredients matched to Picnic products that are on sale">
+                  <Badge color="yellow">{onSaleCount} on sale</Badge>
+                </span>
+              )}
               <Badge color="blue">{recipe.prep_time}</Badge>
               {recipe.calories_per_serving > 0 && (
                 <Badge color="orange">{recipe.calories_per_serving} kcal</Badge>

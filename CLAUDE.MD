@@ -68,7 +68,7 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - **weeks**: id, title, created_at, num_nights, servings, preferences (JSON)
 - **recipes**: id, week_id (FK, nullable — NULL for custom recipes), title, description, servings, prep_time, instructions, night_number, source_recipe_id (nullable), calories_per_serving, rating (nullable integer: 1=thumbs up, -1=thumbs down, NULL=unrated)
 - **ingredients**: id, recipe_id (FK), name, quantity, is_staple (bool), category
-- **picnic_products**: id, ingredient_id (FK), picnic_id, name, image_id, price (cents), unit_quantity, quantity, added_to_cart (bool), auto_matched (bool — unvetted first-result fallback match)
+- **picnic_products**: id, ingredient_id (FK), picnic_id, name, image_id, price (cents), unit_quantity, quantity, added_to_cart (bool), auto_matched (bool — unvetted first-result fallback match), promo_label (nullable — promotion on the product at matching time, e.g. "1+1 gratis")
 - **settings**: key (PK), value — stores gemini_api_key, gemini_model, gemini_matching_model, picnic_username, picnic_password, picnic_country_code, default_num_nights, default_servings, default_calories, week_title_format, exclude_staples_from_budget, deals_enabled; internal keys: picnic_auth_key (encrypted session token), staples_seeded (one-time seed flag)
 - **frequent_items**: id, picnic_id, name, image_id, price (cents), unit_quantity, quantity
 - **staples**: id, name (unique) — user-editable list of staple pantry ingredients, seeded with defaults exactly once (tracked via `staples_seeded` settings key, so an intentionally emptied list stays empty)
@@ -112,7 +112,8 @@ Settings DB (SQLite) > environment variables (.env.local) > hardcoded defaults. 
 - Staple classification uses a user-editable DB list (`staples` table) instead of a hardcoded array; the list is included in the Gemini prompt
 - Calorie targets are configurable: `default_calories` setting + per-week portion size preference (light/normal/large)
 - Deals (experimental, `deals_enabled` setting): read **live** from Picnic's promotions page (`catalog.getPromotions()`, the app's "Acties" tab) via `getDeals()` in lib/picnic.ts — no DB cache, just a 15-minute in-memory cache on `globalThis` (concurrent callers share one request). Tiles with a `PROMO` label are the page's deals; multi-product promotion groups ("Korting op Alpro") are listed by name + label and their products fetched only when opened on the Deals page (`getDealGroup`, also cached 15 min)
-  - Gemini prompt (only when `deals_enabled=true`): up to 150 page deals plus one line per promotion group; fetched at generation time and skipped (not failed) when Picnic is unreachable or needs 2FA
+  - Gemini prompt (only when `deals_enabled=true`): up to 150 page deals plus one line per promotion group, grouped by promotions-page category (`PromoProduct.category` = section title) with an instruction to build several dinners around them; fetched at generation time and skipped (not failed) when Picnic is unreachable or needs 2FA. Logged as `[gemini] prompt includes N deals + M promotion groups…`
+  - Visibility: the matcher records the `promo_label` of every search result it sees and attaches it to the product it picks (the model doesn't echo it); stored in `picnic_products.promo_label` and shown as a yellow badge on the ingredient row plus "N on sale" on the recipe card. Labels reflect matching time, not live state
   - Old installs still have the unused `sale_cache` / `known_promotions` tables from the former DB cache
 
 ## Environment Variables (.env.local)

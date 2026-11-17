@@ -43,6 +43,7 @@ export const CREATE_TABLES = `
     quantity INTEGER NOT NULL DEFAULT 1,
     added_to_cart INTEGER NOT NULL DEFAULT 0,
     auto_matched INTEGER NOT NULL DEFAULT 0,
+    promo_label TEXT,
     FOREIGN KEY (ingredient_id) REFERENCES ingredients(id) ON DELETE CASCADE
   );
 

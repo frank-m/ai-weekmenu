@@ -73,7 +73,7 @@ export async function POST(request: Request) {
       );
       // Insert new match
       db.prepare(
-        "INSERT INTO picnic_products (ingredient_id, picnic_id, name, image_id, price, unit_quantity, quantity) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO picnic_products (ingredient_id, picnic_id, name, image_id, price, unit_quantity, quantity, promo_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
       ).run(
         body.ingredient_id,
         match.picnic_id,
@@ -81,7 +81,8 @@ export async function POST(request: Request) {
         match.image_id,
         match.price,
         match.unit_quantity,
-        match.quantity ?? 1
+        match.quantity ?? 1,
+        match.promo_label ?? null
       );
     }
 

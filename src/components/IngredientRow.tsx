@@ -174,6 +174,14 @@ export default function IngredientRow({
                 Auto-matched · check
               </div>
             )}
+            {product.promo_label && (
+              <div
+                className="inline-block text-[11px] font-medium text-amber-800 bg-yellow-100 rounded px-1.5 py-0.5 my-0.5"
+                title="On sale at Picnic when this product was matched"
+              >
+                {product.promo_label}
+              </div>
+            )}
             {product.quantity > 1 && (
               <div className="text-xs font-medium text-orange-600">{product.quantity}&times;</div>
             )}
